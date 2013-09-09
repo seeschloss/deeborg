@@ -170,6 +170,10 @@ class Bot {
 	}
 
 	void learn(string human_sentence) {
+		human_sentence = human_sentence.translate([
+			'?': '.',
+			'!': '.'
+		]);
 		foreach (string sub_sentence; human_sentence.split(".")) {
 			Sentence sentence = new Sentence();
 			sentence.words = this.parse_sentence(sub_sentence);
@@ -197,9 +201,8 @@ class Bot {
 		string[] words;
 
 		enum is_word = ctRegex!(`\pL`);
-		enum is_junk = ctRegex!(`[=+\[\](){}#/|\\*@~^<>]`);
-		enum is_url = ctRegex!(`^(<a|href=)`);
-		enum is_unbalanced = ctRegex!(`^(<[^>]*)|([^<]*>)$`);
+		enum is_junk = ctRegex!(`[=+(){}#/|\\*@~^<>]`);
+		enum is_url = ctRegex!(`^href=`);
 
 		sentence = sentence.removechars("\"");
 		
@@ -213,10 +216,6 @@ class Bot {
 			}
 
 			if (match(word, is_url)) {
-				continue;
-			}
-
-			if (match(word, is_unbalanced)) {
 				continue;
 			}
 
