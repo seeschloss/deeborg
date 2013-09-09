@@ -8,16 +8,42 @@ import std.regex;
 import std.getopt;
 import std.zlib;
 
-void main(string[] args) {
+void help() {
+	stdout.writeln(q"#Usage: deeborg [--file=<word database>] [--learn=false] [--answer=false]
+
+	--file=<word database>  read <word database> to create answers and update
+	                        it with new sentences
+	--learn=false           do not learn new sentences
+	                        (true by default, ie learn new sentences)
+	--answer=false          do not answer fed sentences
+	                        (true by default, ie answer each sentence fed)
+
+Unless learning or answering are disabled, each line fed on stdin
+will be read and answered to use Markov chains and the existing
+word database. Each line will then be parsed into sentences
+and added to the database, and the next line will be processed.
+
+License GPLv2: <http://gnu.org/licenses/gpl.html>.
+Written by Matthieu Valleton, please report bugs or comments to <see@seos.fr>.
+Project homepage: <https://github.com/seeschloss/deeborg>.
+#");
+}
+
+int main(string[] args) {
 	bool learn = true, answer = true;
 	string statefile = "deeborg.state";
 
-	getopt(
-		args,
-		"learn", &learn,
-		"answer", &answer,
-		"file", &statefile
-	);
+	try {
+		getopt(
+			args,
+			"learn", &learn,
+			"answer", &answer,
+			"file", &statefile
+		);
+	} catch (Exception e) {
+		help();
+		return 1;
+	}
 
 	Bot bot = new Bot();
 
@@ -42,6 +68,8 @@ void main(string[] args) {
 
 	string state = bot.save_state();
 	std.file.write(statefile, state);
+
+	return 0;
 }
 
 class Sentence {
