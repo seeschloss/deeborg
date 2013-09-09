@@ -7,12 +7,16 @@ import std.file;
 import std.regex;
 import std.getopt;
 import std.zlib;
+import std.algorithm;
+
+immutable WORD_POPULARITY_THRESHOLD = 2;
 
 void help() {
 	stdout.writeln(q"#Usage: deeborg [--file=<word database>] [--learn=false] [--answer=false]
 
 	--file=<word database>  read <word database> to create answers and update
 	                        it with new sentences
+	                        ("deeborg.state" in current directory by default)
 	--learn=false           do not learn new sentences
 	                        (true by default, ie learn new sentences)
 	--answer=false          do not answer fed sentences
@@ -292,11 +296,16 @@ class Bot {
 					previous_words[previous_word] = 0;
 				}
 
-				previous_words[previous_word] += candidate.sentence.times;
+
+				auto popularity = this.words[previous_word].length;
+
+				if (popularity >= WORD_POPULARITY_THRESHOLD) {
+					previous_words[previous_word] += popularity * candidate.sentence.times;
+				}
 			}
 		}
 
-		if (previous_words.values.length == 0) {
+		if (previous_words.values.length == 0 || reduce!((a, b) => a + b)(previous_words.values) == 0) {
 			// No previous word to say.
 			return null;
 		}
@@ -359,11 +368,15 @@ class Bot {
 					next_words[next_word] = 0;
 				}
 
-				next_words[next_word] += candidate.sentence.times;
+				auto popularity = this.words[next_word].length;
+
+				if (popularity >= WORD_POPULARITY_THRESHOLD) {
+					next_words[next_word] += popularity * candidate.sentence.times;
+				}
 			}
 		}
 
-		if (next_words.values.length == 0) {
+		if (next_words.values.length == 0 || reduce!((a, b) => a + b)(next_words.values) == 0) {
 			// No next word to say.
 			return null;
 		}
