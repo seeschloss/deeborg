@@ -93,16 +93,16 @@ class Sentence {
 	this(string[] data) {
 		this.times = parse!int(data[1]);
 		this.words = split(data[2]);
-		this._hash = data[0][1..$];
+		this._id = data[0][1..$];
 	}
 
-	string _hash = null;
-	string hash() {
-		if (this._hash is null) {
-			this._hash = crcHexString(digest!CRC32(this.words.join(" ")));
+	string _id = null;
+	string id() {
+		if (this._id is null) {
+			this._id = crcHexString(digest!CRC32(this.words.join(" ")));
 		}
 
-		return this._hash;
+		return this._id;
 	}
 }
 
@@ -136,11 +136,11 @@ class Bot {
 			state_words ~= word_text;
 
 			foreach (Word word; words) {
-				state_words ~= format("\t%s:%s", word.sentence.hash, word.position);
+				state_words ~= format("\t%s:%s", word.sentence.id, word.position);
 				
-				if (word.sentence.hash !in printed_sentences) {
-					printed_sentences[word.sentence.hash] = 1;
-					state_sentences ~= format(" %s\t%s\t%s\n", word.sentence.hash, word.sentence.times, word.sentence.words.join(" "));
+				if (word.sentence.id !in printed_sentences) {
+					printed_sentences[word.sentence.id] = 1;
+					state_sentences ~= format(" %s\t%s\t%s\n", word.sentence.id, word.sentence.times, word.sentence.words.join(" "));
 				}
 			}
 
@@ -172,7 +172,7 @@ class Bot {
 						word.text = text;
 						word.sentence = this.sentences[parts[0]];
 						word.position = parse!int(parts[1]);
-						this.words[word.text][word.sentence.hash] = word;
+						this.words[word.text][word.sentence.id] = word;
 					} else {
 						stderr.writeln("Buggy reference for word ", text, ": ", reference);
 					}
@@ -182,10 +182,9 @@ class Bot {
 	}
 
 	void learn(string human_sentence) {
-		human_sentence = human_sentence.translate([
-			'?': '.',
-			'!': '.'
-		]);
+		human_sentence = std.array.replace(human_sentence, "?", "?. ");
+		human_sentence = std.array.replace(human_sentence, "!", "!. ");
+
 		foreach (string sub_sentence; human_sentence.split(". ")) {
 			Sentence sentence = new Sentence();
 			sentence.words = this.parse_sentence(sub_sentence);
@@ -196,12 +195,12 @@ class Bot {
 
 			sentence.words[0] = sentence.words[0].toLower();
 
-			if (sentence.hash in this.sentences) {
-				sentence = this.sentences[sentence.hash];
+			if (sentence.id in this.sentences) {
+				sentence = this.sentences[sentence.id];
 				sentence.times++;
 			} else {
 				sentence.times = 1;
-				this.sentences[sentence.hash] = sentence;
+				this.sentences[sentence.id] = sentence;
 			}
 
 			foreach (int position, string sentence_word ; sentence.words) {
@@ -211,18 +210,35 @@ class Bot {
 				word.position = position;
 
 				if (sentence_word != "#") {
-					this.words[sentence_word][sentence.hash] = word;
+					this.words[sentence_word][sentence.id] = word;
 				}
 			}
 		}
 
-		if (this.words.length > 50000) {
+		int forgotten = 0;
+		int min_popularity = 0;
+		while (this.words.length > 50000) {
 			// Some cleanup to do here.
+
+			min_popularity++;
+			foreach (string word_text, Word[string] sentences; this.words) {
+				if (sentences.length <= min_popularity) {
+					this.words.remove(word_text);
+					forgotten++;
+				}
+
+				if (this.words.length <= 50000) {
+					break;
+				}
+			}
 		}
 	}
 
 	string[] parse_sentence(string sentence) {
 		string[] words;
+
+		sentence = std.array.replace(sentence, " ?", "?");
+		sentence = std.array.replace(sentence, " !", "!");
 
 		enum is_word = ctRegex!(`\pL`);
 		enum is_junk = ctRegex!(`[=+(){}#/|\\*@~^<>&;]`);
@@ -230,7 +246,7 @@ class Bot {
 
 		sentence = sentence.removechars("\"");
 		
-		foreach (string word; sentence.tr("-", " ").split(" ")) {
+		foreach (string word; sentence.split(" ")) {
 			if (word.length > 1 && word[$-1] == '<') {
 				// This is a tribune nickname.
 				words ~= "#";
@@ -253,6 +269,10 @@ class Bot {
 			}
 
 			words ~= word;
+		}
+
+		while (words.length > 0 && words[0] == "#") {
+			words = words[1 .. $];
 		}
 
 		return words;
@@ -297,6 +317,8 @@ class Bot {
 		sentence = std.array.replace(sentence, "&lt;", "<");
 		sentence = std.array.replace(sentence, "&gt;", ">");
 		sentence = std.array.replace(sentence, "&amp;", "&");
+		sentence = std.array.replace(sentence, "?", " ?");
+		sentence = std.array.replace(sentence, "!", " !");
 
 		return sentence;
 	}
