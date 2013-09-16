@@ -184,6 +184,8 @@ class Bot {
 	void learn(string human_sentence) {
 		human_sentence = std.array.replace(human_sentence, "?", "?. ");
 		human_sentence = std.array.replace(human_sentence, "!", "!. ");
+		human_sentence = std.array.replace(human_sentence, " (", ". ");
+		human_sentence = std.array.replace(human_sentence, ") ", ". ");
 
 		foreach (string sub_sentence; human_sentence.split(". ")) {
 			Sentence sentence = new Sentence();
@@ -294,7 +296,7 @@ class Bot {
 		foreach (string word; words) {
 			auto rarity = this.word_rarity(word);
 
-			if (rarity < 1) {
+			if (rarity < 2) {
 				// An unknown word is not "rare", it is unknown.
 				// And a word only seen once is still too rare to use.
 				continue;
@@ -353,17 +355,17 @@ class Bot {
 		}
 	}
 
-	string complete_before(string[] sentence) {
+	string complete_before(string[] sentence, int depth) {
 		typeof([].length)[string] candidates;
 
-		string[] reference = sentence[0 .. min(LOOKAHEAD_DEPTH, sentence.length)];
+		string[] reference = sentence[0 .. min(depth, sentence.length)];
 
 		if (sentence[0] in this.words && this.words[sentence[0]].length) {
 			foreach (Word occurence; this.words[sentence[0]]) {
 				if (occurence.sentence.words.length >= occurence.position + reference.length && occurence.position > 0) {
 					if (occurence.sentence.words[occurence.position .. occurence.position + reference.length] == reference) {
 						string word = occurence.sentence.words[occurence.position - 1];
-						if (word in this.words) {
+						if (word in this.words && this.words[word].length > 1) {
 							if (word !in candidates) {
 								candidates[word] = 0;
 							}
@@ -375,6 +377,11 @@ class Bot {
 								if (next_word in this.words) {
 									candidates[word] += this.words[next_word].length;
 								}
+							}
+
+							// Boost score of first words.
+							if (occurence.position == 0) {
+								candidates[word] *= 2;
 							}
 						}
 					}
@@ -390,32 +397,50 @@ class Bot {
 		return null;
 	}
 
-	string complete_after(string[] sentence) {
+	string complete_after(string[] sentence, int depth) {
 		typeof([].length)[string] candidates;
 
-		string[] reference = sentence[max(sentence.length - LOOKAHEAD_DEPTH, 0) .. $];
+		string[] reference = sentence[max(sentence.length - depth, 0) .. $];
 
 		if (sentence[$-1] in this.words && this.words[sentence[$-1]].length) {
 			foreach (Word occurence; this.words[sentence[$-1]]) {
 				if (occurence.position >= reference.length - 1 && occurence.sentence.words.length > occurence.position + 1) {
 					if (occurence.sentence.words[occurence.position - reference.length + 1 .. occurence.position + 1] == reference) {
 						string word = occurence.sentence.words[occurence.position + 1];
-						if (word in this.words) {
-							if (word !in candidates) {
-								candidates[word] = 0;
-							}
 
-							candidates[word] += this.words[word].length;
+						if (word in this.words && this.words[word].length > 1) {
+							auto score = this.words[word].length;
+
+							if (occurence.position == occurence.sentence.words.length - 2) {
+								word ~= ".";
+							}
 
 							if (reference.length > 1) {
 								string previous_word = occurence.sentence.words[occurence.position];
 								if (previous_word in this.words) {
-									candidates[word] += this.words[previous_word].length;
+									score += this.words[previous_word].length;
 								}
 							}
+
+							// Boost score of last words.
+							if (occurence.position == occurence.sentence.words.length - 1) {
+								score *= 2;
+							}
+
+							if (word !in candidates) {
+								candidates[word] = 0;
+							}
+							candidates[word] = score;
 						}
 					}
 				}
+			}
+		}
+
+		if (!candidates.length && depth > 1) {
+			string candidate = complete_after(sentence, 1);
+			if (candidate) {
+				candidates[candidate] = 1;
 			}
 		}
 
@@ -442,11 +467,11 @@ class Bot {
 		}
 
 		string s;
-		while ((s = this.complete_before(answer)) !is null) {
+		while ((s = this.complete_before(answer, LOOKAHEAD_DEPTH)) !is null) {
 			answer = [s] ~ answer;
 		}
 
-		while ((s = this.complete_after(answer)) !is null) {
+		while ((s = this.complete_after(answer, LOOKAHEAD_DEPTH)) !is null) {
 			answer ~= s;
 		}
 
