@@ -8,8 +8,12 @@ import std.regex;
 import std.getopt;
 import std.zlib;
 import std.algorithm;
+import std.math;
 
-immutable WORD_POPULARITY_THRESHOLD = 2;
+enum Direction {forward, backward};
+
+immutable WORD_POPULARITY_THRESHOLD = 1;
+int LOOKAHEAD_DEPTH = 3;
 
 void help() {
 	stdout.writeln(q"#Usage: deeborg [--file=<word database>] [--learn=false] [--answer=false]
@@ -35,6 +39,7 @@ Project homepage: <https://github.com/seeschloss/deeborg>.
 
 int main(string[] args) {
 	bool learn = true, answer = true;
+	int depth = 2;
 	string statefile = "deeborg.state";
 
 	try {
@@ -42,12 +47,15 @@ int main(string[] args) {
 			args,
 			"learn", &learn,
 			"answer", &answer,
-			"file", &statefile
+			"file", &statefile,
+			"depth", &depth
 		);
 	} catch (Exception e) {
 		help();
 		return 1;
 	}
+
+	LOOKAHEAD_DEPTH = depth;
 
 	Bot bot = new Bot();
 
@@ -178,9 +186,15 @@ class Bot {
 			'?': '.',
 			'!': '.'
 		]);
-		foreach (string sub_sentence; human_sentence.split(".")) {
+		foreach (string sub_sentence; human_sentence.split(". ")) {
 			Sentence sentence = new Sentence();
 			sentence.words = this.parse_sentence(sub_sentence);
+
+			if (sentence.words.length < 3) {
+				continue;
+			}
+
+			sentence.words[0] = sentence.words[0].toLower();
 
 			if (sentence.hash in this.sentences) {
 				sentence = this.sentences[sentence.hash];
@@ -196,8 +210,14 @@ class Bot {
 				word.sentence = sentence;
 				word.position = position;
 
-				this.words[sentence_word][sentence.hash] = word;
+				if (sentence_word != "#") {
+					this.words[sentence_word][sentence.hash] = word;
+				}
 			}
+		}
+
+		if (this.words.length > 50000) {
+			// Some cleanup to do here.
 		}
 	}
 
@@ -205,21 +225,30 @@ class Bot {
 		string[] words;
 
 		enum is_word = ctRegex!(`\pL`);
-		enum is_junk = ctRegex!(`[=+(){}#/|\\*@~^<>]`);
+		enum is_junk = ctRegex!(`[=+(){}#/|\\*@~^<>&;]`);
 		enum is_url = ctRegex!(`^href=`);
 
 		sentence = sentence.removechars("\"");
 		
-		foreach (string word; split(sentence)) {
+		foreach (string word; sentence.tr("-", " ").split(" ")) {
+			if (word.length > 1 && word[$-1] == '<') {
+				// This is a tribune nickname.
+				words ~= "#";
+				continue;
+			}
+
 			if (!match(word, is_word)) {
+				words ~= "#";
 				continue;
 			}
 
 			if (match(word, is_junk)) {
+				words ~= "#";
 				continue;
 			}
 
 			if (match(word, is_url)) {
+				words ~= "#";
 				continue;
 			}
 
@@ -245,8 +274,9 @@ class Bot {
 		foreach (string word; words) {
 			auto rarity = this.word_rarity(word);
 
-			if (rarity == 0) {
+			if (rarity < 1) {
 				// An unknown word is not "rare", it is unknown.
+				// And a word only seen once is still too rare to use.
 				continue;
 			}
 
@@ -261,156 +291,118 @@ class Bot {
 		return rarest_word;
 	}
 
-	string previous_word(string word, string[] sentence) {
-		int[string] previous_words;
-		if (word !in this.words) {
-			stderr.writeln("Word not found: ", word);
-			return null;
-		}
-
-		foreach (Word candidate; this.words[word]) {
-			if (candidate.position > 0 && candidate.sentence.words.length > 0) {
-				// We are unlikely to find a previous word if this
-				// word is the first, right?
-
-				if (sentence.length > 1
-				    && candidate.sentence.words.length > candidate.position+1) {
-					// We already have a small length of sentence
-					// and this candidate word is not at the end of
-					// its own original sentence, so let's look for
-					// a sentence in which this word is followed by
-					// the same word it is followed by in our answer.
-				    if (sentence[1] != candidate.sentence.words[candidate.position+1]) {
-						// Not this time
-						continue;
-					}
-				}
-
-				// When we arrive here, we are either looking for the
-				// very first word in our answer, or we have found a
-				// word that is followed by the same word it will be
-				// followed by in our answer. Is that clear?
-
-				string previous_word = candidate.sentence.words[candidate.position-1];
-				if (previous_word !in previous_words) {
-					previous_words[previous_word] = 0;
-				}
-
-
-				auto popularity = this.words[previous_word].length;
-
-				if (popularity >= WORD_POPULARITY_THRESHOLD) {
-					previous_words[previous_word] += popularity * candidate.sentence.times;
-				}
-			}
-		}
-
-		if (previous_words.values.length == 0 || reduce!((a, b) => a + b)(previous_words.values) == 0) {
-			// No previous word to say.
-			return null;
-		}
-
-		int[string] words_in_sentence;
-		foreach (string sentence_word; sentence) {
-			words_in_sentence[sentence_word] = 1;
-		}
-
-		string previous_word = null;
-		auto max_tries = previous_words.values.length;
-		typeof(max_tries) tries = 0;
-
-		do {
-			tries++;
-
-			// Choose a random word from the list of candidates.
-			// Pyborg just takes the one with the highest score, but
-			// we will choose one randomly, here, although we will
-			// still favour the ones with the highest score.
-			auto index = dice(previous_words.values);
-			previous_word = previous_words.keys[index];
-		} while (previous_word in words_in_sentence && tries <= max_tries);
-
-		return tries <= max_tries ? previous_word : null;
-	}
-
-	string next_word(string word, string[] sentence) {
-		int[string] next_words;
-		if (word !in this.words) {
-			stderr.writeln("Word not found: ", word);
-			return null;
-		}
-
-		foreach (Word candidate; this.words[word]) {
-			if (candidate.position < candidate.sentence.words.length - 1) {
-				// We are unlikely to find a next word if this
-				// word is the last, right?
-
-				if (sentence.length > 1
-				    && candidate.position > 1) {
-					// We already have a small length of sentence
-					// and this candidate word is not at the beginning of
-					// its own original sentence, so let's look for
-					// a sentence in which this word is preceeded by
-					// the same word it is preceeded by in our answer.
-				    if (sentence[$-2] != candidate.sentence.words[candidate.position-1]) {
-						// Not this time
-						continue;
-					}
-				}
-
-				// When we arrive here, we are either looking for the
-				// very first word in our answer, or we have found a
-				// word that is preceeded by the same word it will be
-				// preceeded by in our answer. Is that clear?
-
-				string next_word = candidate.sentence.words[candidate.position+1];
-				if (next_word !in next_words) {
-					next_words[next_word] = 0;
-				}
-
-				auto popularity = this.words[next_word].length;
-
-				if (popularity >= WORD_POPULARITY_THRESHOLD) {
-					next_words[next_word] += popularity * candidate.sentence.times;
-				}
-			}
-		}
-
-		if (next_words.values.length == 0 || reduce!((a, b) => a + b)(next_words.values) == 0) {
-			// No next word to say.
-			return null;
-		}
-
-		int[string] words_in_sentence;
-		foreach (string sentence_word; sentence) {
-			words_in_sentence[sentence_word] = 1;
-		}
-
-		string next_word = null;
-		auto max_tries = next_words.values.length;
-		typeof(max_tries) tries = 0;
-
-		do {
-			tries++;
-
-			// Choose a random word from the list of candidates.
-			// Pyborg just takes the one with the highest score, but
-			// we will choose one randomly, here, although we will
-			// still favour the ones with the highest score.
-			auto index = dice(next_words.values);
-			next_word = next_words.keys[index];
-		} while (next_word in words_in_sentence && tries <= max_tries);
-
-		return tries <= max_tries ? next_word : null;
-	}
-
 	string sanitize_answer(string sentence) {
 		sentence = std.array.replace(sentence, "''", "'");
+		sentence = std.array.replace(sentence, "#", "");
 		sentence = std.array.replace(sentence, "&lt;", "<");
 		sentence = std.array.replace(sentence, "&gt;", ">");
 		sentence = std.array.replace(sentence, "&amp;", "&");
 
 		return sentence;
+	}
+
+	string[] get_initial_sentence(string seed, int length) {
+		string[][] sentences;
+
+		if (seed in this.words && this.words[seed].length) {
+			foreach (Word occurence; this.words[seed]) {
+				if (occurence.sentence.words.length >= length) {
+					if (occurence.position <= length) {
+						// seed is within the length first words
+						sentences ~= occurence.sentence.words[0 .. length];
+					} else if (occurence.sentence.words.length - occurence.position < length) {
+						// seed is within the length last words
+						sentences ~= occurence.sentence.words[$-length .. $];
+					} else {
+						// then seed will have at least length words before it and length words after it
+						int offset = length/2 + 1;
+						sentences ~= occurence.sentence.words[occurence.position-length+offset .. occurence.position+offset];
+					}
+				}
+			}
+		}
+
+		if (sentences.length == 1) {
+			return sentences[0];
+		} else if (sentences.length > 1) {
+			return sentences[uniform(0, sentences.length - 1)];
+		} else {
+			return [];
+		}
+	}
+
+	string complete_before(string[] sentence) {
+		typeof([].length)[string] candidates;
+
+		string[] reference = sentence[0 .. min(LOOKAHEAD_DEPTH, sentence.length)];
+
+		if (sentence[0] in this.words && this.words[sentence[0]].length) {
+			foreach (Word occurence; this.words[sentence[0]]) {
+				if (occurence.sentence.words.length >= occurence.position + reference.length && occurence.position > 0) {
+					if (occurence.sentence.words[occurence.position .. occurence.position + reference.length] == reference) {
+						string word = occurence.sentence.words[occurence.position - 1];
+						if (word in this.words) {
+							if (word !in candidates) {
+								candidates[word] = 0;
+							}
+
+							candidates[word] = this.words[word].length;
+
+							if (reference.length > 1) {
+								string next_word = occurence.sentence.words[occurence.position + 1];
+								if (next_word in this.words) {
+									candidates[word] += this.words[next_word].length;
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if (candidates.length) {
+			auto index = dice(candidates.values);
+			return candidates.keys[index];
+		}
+		
+		return null;
+	}
+
+	string complete_after(string[] sentence) {
+		typeof([].length)[string] candidates;
+
+		string[] reference = sentence[max(sentence.length - LOOKAHEAD_DEPTH, 0) .. $];
+
+		if (sentence[$-1] in this.words && this.words[sentence[$-1]].length) {
+			foreach (Word occurence; this.words[sentence[$-1]]) {
+				if (occurence.position >= reference.length - 1 && occurence.sentence.words.length > occurence.position + 1) {
+					if (occurence.sentence.words[occurence.position - reference.length + 1 .. occurence.position + 1] == reference) {
+						string word = occurence.sentence.words[occurence.position + 1];
+						if (word in this.words) {
+							if (word !in candidates) {
+								candidates[word] = 0;
+							}
+
+							candidates[word] += this.words[word].length;
+
+							if (reference.length > 1) {
+								string previous_word = occurence.sentence.words[occurence.position];
+								if (previous_word in this.words) {
+									candidates[word] += this.words[previous_word].length;
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if (candidates.length) {
+			auto index = dice(candidates.values);
+			return candidates.keys[index];
+		}
+		
+		return null;
 	}
 
 	string answer(string sentence) {
@@ -421,21 +413,22 @@ class Bot {
 			return "";
 		}
 
-		string[] answer = [seed];
-
-		string previous = null;
-		while ((previous = this.previous_word(answer[0], answer)) !is null) {
-			answer = [previous] ~ answer;
+		string[] answer = this.get_initial_sentence(seed, LOOKAHEAD_DEPTH);
+		
+		if (!answer.length) {
+			return "";
 		}
 
-		string next = null;
-		while ((next = this.next_word(answer[$-1], answer)) !is null) {
-			answer ~= next;
+		string s;
+		while ((s = this.complete_before(answer)) !is null) {
+			answer = [s] ~ answer;
 		}
 
-		string final_answer = answer.join(" ");
+		while ((s = this.complete_after(answer)) !is null) {
+			answer ~= s;
+		}
 
-		return this.sanitize_answer(final_answer);
+		return this.sanitize_answer(answer.join(" "));
 	}
 }
 
