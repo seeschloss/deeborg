@@ -16,15 +16,25 @@ immutable WORD_POPULARITY_THRESHOLD = 1;
 int LOOKAHEAD_DEPTH = 3;
 
 void help() {
-	stdout.writeln(q"#Usage: deeborg [--file=<word database>] [--learn=false] [--answer=false]
+	stdout.writeln(q"#Usage: deeborg  [options ...]
 
-	--file=<word database>  read <word database> to create answers and update
-	                        it with new sentences
-	                        ("deeborg.state" in current directory by default)
-	--learn=false           do not learn new sentences
-	                        (true by default, ie learn new sentences)
-	--answer=false          do not answer fed sentences
-	                        (true by default, ie answer each sentence fed)
+	--file=<word database>      read <word database> to create answers and update
+	                            it with new sentences
+	                            ("deeborg.state" in current directory by default)
+
+	--learn=<true|false>        do not learn new sentences
+	                            (true by default, ie learn new sentences)
+
+	--answer=<true|false>       do not answer fed sentences
+	                            (true by default, ie answer each sentence fed)
+
+	--depth=<lookahead depth>   depth to which to look for matches for words in
+	                            answer (3 means every three-word subsentence must
+	                            already exist in known sentences).
+	                            (2 by default)
+	
+	--help                      this help message
+
 
 Unless learning or answering are disabled, each line fed on stdin
 will be read and answered to use Markov chains and the existing
@@ -70,7 +80,16 @@ int main(string[] args) {
 		sentence = strip(sentence);
 
 		if (answer) {
-			stdout.writeln(bot.answer(sentence));
+			string answer_sentence = bot.answer(sentence);
+
+			// This is a crude way to ensure that sentences end mostly correctly.
+			int tries = 0;
+			while (answer_sentence.length > 1 && answer_sentence[$-1] != '.' && tries < 10) {
+				tries++;
+				answer_sentence = bot.answer(sentence);
+			}
+
+			stdout.writeln(answer_sentence);
 		}
 
 		if (learn) {
@@ -291,7 +310,7 @@ class Bot {
 	string rarest_word(string sentence) {
 		string[] words = this.parse_sentence(sentence);
 
-		typeof([].length) min_rarity = 0;
+		size_t min_rarity = 0;
 		string rarest_word = null;
 		foreach (string word; words) {
 			auto rarity = this.word_rarity(word);
@@ -356,7 +375,7 @@ class Bot {
 	}
 
 	string complete_before(string[] sentence, int depth) {
-		typeof([].length)[string] candidates;
+		size_t[string] candidates;
 
 		string[] reference = sentence[0 .. min(depth, sentence.length)];
 
@@ -398,7 +417,7 @@ class Bot {
 	}
 
 	string complete_after(string[] sentence, int depth) {
-		typeof([].length)[string] candidates;
+		size_t[string] candidates;
 
 		string[] reference = sentence[max(sentence.length - depth, 0) .. $];
 
@@ -437,8 +456,8 @@ class Bot {
 			}
 		}
 
-		if (!candidates.length && depth > 1) {
-			string candidate = complete_after(sentence, 1);
+		if (!candidates.length && depth > 2) {
+			string candidate = complete_after(sentence, depth - 1);
 			if (candidate) {
 				candidates[candidate] = 1;
 			}
