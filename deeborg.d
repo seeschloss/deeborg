@@ -30,8 +30,12 @@ void help() {
 
 	--depth=<lookahead depth>   depth to which to look for matches for words in
 	                            answer (3 means every three-word subsentence must
-	                            already exist in known sentences).
+	                            already exist in known sentences)
 	                            (2 by default)
+	
+	--handle=<author handle>    if learning is enabled, handle of the person talking
+	                            the bot will not use sentences said by this person
+	                            for its answers
 	
 	--help                      this help message
 
@@ -50,6 +54,7 @@ Project homepage: <https://github.com/seeschloss/deeborg>.
 int main(string[] args) {
 	bool learn = true, answer = true;
 	int depth = 2;
+	string handle = null;
 	string statefile = "deeborg.state";
 
 	try {
@@ -58,7 +63,8 @@ int main(string[] args) {
 			"learn", &learn,
 			"answer", &answer,
 			"file", &statefile,
-			"depth", &depth
+			"depth", &depth,
+			"handle", &handle
 		);
 	} catch (Exception e) {
 		help();
@@ -68,6 +74,7 @@ int main(string[] args) {
 	LOOKAHEAD_DEPTH = depth;
 
 	Bot bot = new Bot();
+	bot.user = std.array.replace(handle, "\t", " ");
 
 	if (exists(statefile)) {
 		string state;
@@ -84,7 +91,7 @@ int main(string[] args) {
 
 			// This is a crude way to ensure that sentences end mostly correctly.
 			int tries = 0;
-			while (answer_sentence.length > 1 && answer_sentence[$-1] != '.' && tries < 10) {
+			while (answer_sentence.length > 1 && answer_sentence[$-1] != '.' && tries < 20) {
 				tries++;
 				answer_sentence = bot.answer(sentence);
 			}
@@ -105,12 +112,12 @@ int main(string[] args) {
 
 class Sentence {
 	string[] words;
-	int times;
+	string author;
 
 	this() {}
 
 	this(string[] data) {
-		this.times = parse!int(data[1]);
+		this.author = data[1];
 		this.words = split(data[2]);
 		this._id = data[0][1..$];
 	}
@@ -141,6 +148,7 @@ class Word {
 class Bot {
 	Sentence[string] sentences;
 	Word[string][string] words;
+	string user = "#";
 
 	this() {
 	}
@@ -159,7 +167,7 @@ class Bot {
 				
 				if (word.sentence.id !in printed_sentences) {
 					printed_sentences[word.sentence.id] = 1;
-					state_sentences ~= format(" %s\t%s\t%s\n", word.sentence.id, word.sentence.times, word.sentence.words.join(" "));
+					state_sentences ~= format(" %s\t%s\t%s\n", word.sentence.id, word.sentence.author, word.sentence.words.join(" "));
 				}
 			}
 
@@ -208,6 +216,7 @@ class Bot {
 
 		foreach (string sub_sentence; human_sentence.split(". ")) {
 			Sentence sentence = new Sentence();
+			sentence.author = this.user ? this.user : "#";
 			sentence.words = this.parse_sentence(sub_sentence);
 
 			if (sentence.words.length < 3) {
@@ -218,9 +227,7 @@ class Bot {
 
 			if (sentence.id in this.sentences) {
 				sentence = this.sentences[sentence.id];
-				sentence.times++;
 			} else {
-				sentence.times = 1;
 				this.sentences[sentence.id] = sentence;
 			}
 
@@ -349,7 +356,7 @@ class Bot {
 
 		if (seed in this.words && this.words[seed].length) {
 			foreach (Word occurence; this.words[seed]) {
-				if (occurence.sentence.words.length >= length) {
+				if (occurence.sentence.author != this.user && occurence.sentence.words.length >= length) {
 					if (occurence.position <= length) {
 						// seed is within the length first words
 						sentences ~= occurence.sentence.words[0 .. length];
@@ -381,7 +388,7 @@ class Bot {
 
 		if (sentence[0] in this.words && this.words[sentence[0]].length) {
 			foreach (Word occurence; this.words[sentence[0]]) {
-				if (occurence.sentence.words.length >= occurence.position + reference.length && occurence.position > 0) {
+				if (occurence.sentence.author != this.user && occurence.sentence.words.length >= occurence.position + reference.length && occurence.position > 0) {
 					if (occurence.sentence.words[occurence.position .. occurence.position + reference.length] == reference) {
 						string word = occurence.sentence.words[occurence.position - 1];
 						if (word in this.words && this.words[word].length > 1) {
@@ -423,7 +430,7 @@ class Bot {
 
 		if (sentence[$-1] in this.words && this.words[sentence[$-1]].length) {
 			foreach (Word occurence; this.words[sentence[$-1]]) {
-				if (occurence.position >= reference.length - 1 && occurence.sentence.words.length > occurence.position + 1) {
+				if (occurence.sentence.author != this.user && occurence.position >= reference.length - 1 && occurence.sentence.words.length > occurence.position + 1) {
 					if (occurence.sentence.words[occurence.position - reference.length + 1 .. occurence.position + 1] == reference) {
 						string word = occurence.sentence.words[occurence.position + 1];
 
