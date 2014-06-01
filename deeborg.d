@@ -10,7 +10,7 @@ import std.zlib;
 import std.algorithm;
 import std.math;
 
-enum Direction {forward, backward};
+import sqlite.database, sqlite.exception, sqlite.statement, sqlite.table;
 
 immutable WORD_POPULARITY_THRESHOLD = 1;
 int LOOKAHEAD_DEPTH = 3;
@@ -56,6 +56,7 @@ int main(string[] args) {
 	int depth = 2;
 	string handle = null;
 	string statefile = "deeborg.state";
+	string tmpstatefile = "";
 
 	try {
 		getopt(
@@ -71,30 +72,35 @@ int main(string[] args) {
 		return 1;
 	}
 
+	tmpstatefile = statefile ~ ".tmp";
+
 	LOOKAHEAD_DEPTH = depth;
 
-	Bot bot = new Bot();
+	Bot bot = new Bot(statefile);
 	bot.user = std.array.replace(handle, "\t", " ");
-
-	if (exists(statefile)) {
-		string state;
-		state = cast(string)read(statefile);
-		bot.load_state(state);
-	}
 
 	string sentence;
 	while ((sentence = stdin.readln()) !is null) {
 		sentence = strip(sentence);
 
+		debug(deeborg) stderr.writeln("Sentence to answer is ", sentence);
+
 		if (answer) {
 			string answer_sentence = bot.answer(sentence);
 
+			/+
 			// This is a crude way to ensure that sentences end mostly correctly.
 			int tries = 0;
 			while (answer_sentence.length > 1 && answer_sentence[$-1] != '.' && tries < 20) {
 				tries++;
 				answer_sentence = bot.answer(sentence);
 			}
+
+			if (answer_sentence.length > 1 && answer_sentence[$-1] == '.') {
+				// Remove extra period.
+				answer_sentence = answer_sentence[0 .. $-1];
+			}
+			+/
 
 			stdout.writeln(answer_sentence);
 		}
@@ -104,177 +110,147 @@ int main(string[] args) {
 		}
 	}
 
-	string state = bot.save_state();
-	std.file.write(statefile, state);
+	//string state = bot.save_state();
 
 	return 0;
 }
 
-class Sentence {
-	string[] words;
-	string author;
-
-	this() {}
-
-	this(string[] data) {
-		this.author = data[1];
-		this.words = split(data[2]);
-		this._id = data[0][1..$];
-	}
-
-	string _id = null;
-	string id() {
-		if (this._id is null) {
-			this._id = crcHexString(digest!CRC32(this.words.join(" ")));
-		}
-
-		return this._id;
-	}
-}
-
-class Word {
-	string text;
-	Sentence sentence;
-	int position;
-
-	this() {}
-
-	this(string[] data) {
-		this.text = data[0];
-		this.position = parse!int(data[1]);
-	}
-}
-
 class Bot {
-	Sentence[string] sentences;
-	Word[string][string] words;
+	Database db;
 	string user = "#";
 
-	this() {
+	this(string dbfile) {
+		if (!exists(dbfile)) {
+			this.db = new Database(dbfile);
+			db.createTable("words",
+				"word_id INTEGER PRIMARY KEY ASC",
+				"word TEXT UNIQUE");
+
+			db.createTable("words_before",
+				"word INTEGER",
+				"word1 INTEGER",
+				"word2 INTEGER",
+				"frequency INTEGER");
+			
+			db.createTable("words_after",
+				"word INTEGER",
+				"word1 INTEGER",
+				"word2 INTEGER",
+				"frequency INTEGER");
+
+
+			/*
+			sqlite3_exec(this.db, "CREATE UNIQUE INDEX words_before_index ON words_before (word, word1, word2)", null, null, null);
+			sqlite3_exec(this.db, "CREATE UNIQUE INDEX words_after_index  ON words_after  (word, word1, word2)", null, null, null);
+			*/
+		} else {
+			this.db = new Database(dbfile);
+			this.db.updateTablesList();
+		}
 	}
 
-	string save_state() {
-		int[string] printed_sentences;
-
-		string state_words;
-		string state_sentences;
-
-		foreach (string word_text, Word[string] words; this.words) {
-			state_words ~= word_text;
-
-			foreach (Word word; words) {
-				state_words ~= format("\t%s:%s", word.sentence.id, word.position);
-				
-				if (word.sentence.id !in printed_sentences) {
-					printed_sentences[word.sentence.id] = 1;
-					state_sentences ~= format(" %s\t%s\t%s\n", word.sentence.id, word.sentence.author, word.sentence.words.join(" "));
-				}
-			}
-
-			state_words ~= '\n';
+	int word_id(string word) {
+		if (word.length == 0) {
+			return 0;
 		}
 
-		return state_sentences ~ state_words;
+		word = word.toLower();
+
+		Row[] results = this.db["words"].select(["word_id"], "word=?", Variant(word));
+		if (results.length == 1) {
+			return results[0]["word_id"]().get!(int);
+		}
+
+		db["words"].insert([Variant(word)], ["word"]);
+		results = this.db["words"].select(["word_id"], "word=?", Variant(word));
+		if (results.length == 1) {
+			return results[0]["word_id"]().get!(int);
+		}
+
+		return 0;
 	}
 
-	void load_state(string state) {
-		foreach (string line; state.splitLines()) {
-			if (line.length == 0) {
-				continue;
-			}
+	string word(int word_id) {
+		Variant result = this.db["words"].value(["word"], "word_id=?", Variant(word_id));
 
-			string[] data = line.split("\t");
-			if (line[0] == ' ') {
-				// That's a sentence
-				this.sentences[data[0][1..$]] = new Sentence(data);
-			} else {
-				// That's a word
-				string text = data[0];
-				foreach (string reference; data[1..$]) {
-					//string[] parts = reference.split(":");
-					if (reference.length > 9) {
-						string[] parts = [reference[0..8], reference[9..$]];
-
-						Word word = new Word();
-						word.text = text;
-						word.sentence = this.sentences[parts[0]];
-						word.position = parse!int(parts[1]);
-						this.words[word.text][word.sentence.id] = word;
-					} else {
-						stderr.writeln("Buggy reference for word ", text, ": ", reference);
-					}
-				}
-			}
+		if (!result.peek!string) {
+			return "";
+		} else {
+			return result.get!string;
 		}
+	}
+
+	void learn_chain(int word2b, int word1b, int word, int word1a, int word2a) {
+		/+
+		Variant result = this.db["words_before"].value(["frequency"], "word=? AND word1=? AND word2=?", Variant(word), Variant(word1b), Variant(word2b));
+
+		int frequency = 0;
+		if (!result.peek!int) {
+			db["words_before"].insert([Variant(word2b), Variant(word1b), Variant(word), Variant(1)], ["word2", "word1", "word", "frequency"]);
+		} else {
+			frequency = result.get!int + 1;
+			db["words_before"].update("frequency=?", "word=? AND word1=? AND word2=?", [Variant(frequency), Variant(word), Variant(word1b), Variant(word2b)]);
+		}
+		+/
+		
+		//Variant result = this.db["words_after"].value(["frequency"], "word=? AND word1=? AND word2=?", Variant(word), Variant(word1a), Variant(word2a));
+
+		//int frequency = 0;
+		//if (!result.peek!int) {
+			db["words_after"].insert([Variant(word2a), Variant(word1a), Variant(word), Variant(1)], ["word2", "word1", "word", "frequency"]);
+		//} else {
+		//	frequency = result.get!int + 1;
+		//	db["words_after"].update("frequency=?", "word=? AND word1=? AND word2=?", [Variant(frequency), Variant(word), Variant(word1a), Variant(word2a)]);
+		//}
 	}
 
 	void learn(string human_sentence) {
-		human_sentence = std.array.replace(human_sentence, "?", "?. ");
-		human_sentence = std.array.replace(human_sentence, "!", "!. ");
-		human_sentence = std.array.replace(human_sentence, " (", ". ");
-		human_sentence = std.array.replace(human_sentence, ") ", ". ");
+		human_sentence = std.array.replace(human_sentence, "?", " ?. ");
+		human_sentence = std.array.replace(human_sentence, "!", " !. ");
+		human_sentence = std.array.replace(human_sentence, " (", " . ");
+		human_sentence = std.array.replace(human_sentence, ") ", " . ");
 
 		foreach (string sub_sentence; human_sentence.split(". ")) {
-			Sentence sentence = new Sentence();
-			sentence.author = this.user ? this.user : "#";
-			sentence.words = this.parse_sentence(sub_sentence);
+			string author = this.user ? this.user : "#";
+			string[] words = this.parse_sentence(sub_sentence);
 
-			if (sentence.words.length < 3) {
+			if (words.length < 3) {
 				continue;
 			}
 
-			sentence.words[0] = sentence.words[0].toLower();
+			words[0] = words[0].toLower();
 
-			if (sentence.id in this.sentences) {
-				sentence = this.sentences[sentence.id];
-			} else {
-				this.sentences[sentence.id] = sentence;
-			}
+			foreach (int position, string sentence_word ; words) {
+				string word1_b = position > 0 ? words[position-1] : "";
+				string word2_b = position > 1 ? words[position-2] : "";
+				string word1_a = position < words.length - 1 ? words[position+1] : "";
+				string word2_a = position < words.length - 2 ? words[position+2] : "";
 
-			foreach (int position, string sentence_word ; sentence.words) {
-				Word word = new Word();
-				word.text = sentence_word;
-				word.sentence = sentence;
-				word.position = position;
-
-				if (sentence_word != "#") {
-					this.words[sentence_word][sentence.id] = word;
-				}
+				this.learn_chain(this.word_id(word2_b), this.word_id(word1_b), this.word_id(sentence_word), this.word_id(word1_a), this.word_id(word2_a));
 			}
 		}
 
 		int forgotten = 0;
 		int min_popularity = 0;
-		while (this.words.length > 50000) {
-			// Some cleanup to do here.
-
-			min_popularity++;
-			foreach (string word_text, Word[string] sentences; this.words) {
-				if (sentences.length <= min_popularity) {
-					this.words.remove(word_text);
-					forgotten++;
-				}
-
-				if (this.words.length <= 50000) {
-					break;
-				}
-			}
-		}
 	}
 
 	string[] parse_sentence(string sentence) {
 		string[] words;
 
-		sentence = std.array.replace(sentence, " ?", "?");
-		sentence = std.array.replace(sentence, " !", "!");
+		sentence = std.array.replace(sentence, "?", " ?");
+		sentence = std.array.replace(sentence, "!", " !");
 
-		enum is_word = ctRegex!(`\pL`);
-		enum is_junk = ctRegex!(`[=+(){}#/|\\*@~^<>&;]`);
+		enum is_word = ctRegex!(`[\pL.?!]`);
+		enum is_junk = ctRegex!(`[=+(){}/|\\*@~^<>&;]`);
 		enum is_url = ctRegex!(`^href=`);
 
 		sentence = sentence.removechars("\"");
 		
 		foreach (string word; sentence.split(" ")) {
+			if (word == " ") {
+				continue;
+			}
+
 			if (word.length > 1 && word[$-1] == '<') {
 				// This is a tribune nickname.
 				words ~= "#";
@@ -306,21 +282,23 @@ class Bot {
 		return words;
 	}
 
-	auto word_rarity(string word) {
-		if (word in this.words) {
-			return this.words[word].length;
+	int word_rarity(int word_id) {
+		Variant result = this.db["words_after"].value(["SUM(frequency)"], "word=? GROUP BY word", Variant(word_id));
+
+		if (result.peek!int) {
+			return result.get!int;
 		} else {
 			return 0;
 		}
 	}
 
-	string rarest_word(string sentence) {
+	int rarest_word(string sentence) {
 		string[] words = this.parse_sentence(sentence);
 
 		size_t min_rarity = 0;
-		string rarest_word = null;
+		int rarest_word = 0;
 		foreach (string word; words) {
-			auto rarity = this.word_rarity(word);
+			auto rarity = this.word_rarity(this.word_id(word));
 
 			if (rarity < 2) {
 				// An unknown word is not "rare", it is unknown.
@@ -332,7 +310,7 @@ class Bot {
 			    || rarity < min_rarity
 			    || (rarity == min_rarity && dice(1, 1))) {
 				min_rarity = rarity;
-				rarest_word = word;
+				rarest_word =this.word_id(word);
 			}
 		}
 
@@ -341,19 +319,24 @@ class Bot {
 
 	string sanitize_answer(string sentence) {
 		sentence = std.array.replace(sentence, "''", "'");
-		sentence = std.array.replace(sentence, "#", "");
+		sentence = std.array.replace(sentence, "# ", " ");
 		sentence = std.array.replace(sentence, "&lt;", "<");
 		sentence = std.array.replace(sentence, "&gt;", ">");
 		sentence = std.array.replace(sentence, "&amp;", "&");
 		sentence = std.array.replace(sentence, "?", " ?");
 		sentence = std.array.replace(sentence, "!", " !");
+		sentence = std.array.replace(sentence, "  ", " ");
 
 		return sentence;
 	}
 
-	string[] get_initial_sentence(string seed, int length) {
-		string[][] sentences;
+	int[] get_initial_sentence(int seed, int length) {
+		return [seed];
 
+
+		int[][] sentences;
+
+		/*
 		if (seed in this.words && this.words[seed].length) {
 			foreach (Word occurence; this.words[seed]) {
 				if (occurence.sentence.author != this.user && occurence.sentence.words.length >= length) {
@@ -371,6 +354,10 @@ class Bot {
 				}
 			}
 		}
+		*/
+
+		foreach (Row row; this.db["words_before"].select(["word", "word1", "word2"], "word=?", Variant(seed))) {
+		}
 
 		if (sentences.length == 1) {
 			return sentences[0];
@@ -381,93 +368,97 @@ class Bot {
 		}
 	}
 
-	string complete_before(string[] sentence, int depth) {
-		size_t[string] candidates;
+	size_t[int] candidates_before(int word, int word1 = 0) {
+		size_t[int] candidates;
 
-		string[] reference = sentence[0 .. min(depth, sentence.length)];
+		string[] conditions;
+		Variant[] values;
 
-		if (sentence[0] in this.words && this.words[sentence[0]].length) {
-			foreach (Word occurence; this.words[sentence[0]]) {
-				if (occurence.sentence.author != this.user && occurence.sentence.words.length >= occurence.position + reference.length && occurence.position > 0) {
-					if (occurence.sentence.words[occurence.position .. occurence.position + reference.length] == reference) {
-						string word = occurence.sentence.words[occurence.position - 1];
-						if (word in this.words && this.words[word].length > 1) {
-							if (word !in candidates) {
-								candidates[word] = 0;
-							}
+		conditions ~= "word1=?";
+		values ~= Variant(word);
 
-							candidates[word] = this.words[word].length;
+		if (word1) {
+			conditions ~= "word2=?";
+			values ~= Variant(word1);
+		}
 
-							if (reference.length > 1) {
-								string next_word = occurence.sentence.words[occurence.position + 1];
-								if (next_word in this.words) {
-									candidates[word] += this.words[next_word].length;
-								}
-							}
-
-							// Boost score of first words.
-							if (occurence.position == 0) {
-								candidates[word] *= 2;
-							}
-						}
-					}
-				}
+		// This is a bit tricky:
+		// Since we're looking for words that should come before [word, word1], we
+		// have to look in the words_after table, for words that have [word, word1]
+		// as their following words.
+		// The words_after and words_before tables are redundant though, and I'll have
+		// to get rid of one of them later.
+		foreach (Row row; this.db["words_after"].select(["word"], conditions.join(" AND "), values)) {
+			int candidate = row["word"]().get!int;
+			if (candidate !in candidates) {
+				candidates[candidate] = 0;
 			}
+			candidates[candidate]++;
 		}
 
-		if (candidates.length) {
-			auto index = dice(candidates.values);
-			return candidates.keys[index];
-		}
-		
-		return null;
+		return candidates;
 	}
 
-	string complete_after(string[] sentence, int depth) {
-		size_t[string] candidates;
+	size_t[int] candidates_after(int word, int word1 = 0) {
+		size_t[int] candidates;
 
-		string[] reference = sentence[max(sentence.length - depth, 0) .. $];
+		Row[] result;
 
-		if (sentence[$-1] in this.words && this.words[sentence[$-1]].length) {
-			foreach (Word occurence; this.words[sentence[$-1]]) {
-				if (occurence.sentence.author != this.user && occurence.position >= reference.length - 1 && occurence.sentence.words.length > occurence.position + 1) {
-					if (occurence.sentence.words[occurence.position - reference.length + 1 .. occurence.position + 1] == reference) {
-						string word = occurence.sentence.words[occurence.position + 1];
-
-						if (word in this.words && this.words[word].length > 1) {
-							auto score = this.words[word].length;
-
-							if (occurence.position == occurence.sentence.words.length - 2) {
-								word ~= ".";
-							}
-
-							if (reference.length > 1) {
-								string previous_word = occurence.sentence.words[occurence.position];
-								if (previous_word in this.words) {
-									score += this.words[previous_word].length;
-								}
-							}
-
-							// Boost score of last words.
-							if (occurence.position == occurence.sentence.words.length - 1) {
-								score *= 2;
-							}
-
-							if (word !in candidates) {
-								candidates[word] = 0;
-							}
-							candidates[word] = score;
-						}
-					}
-				}
-			}
+		if (word1) {
+			result = this.db["words_after"].select(["word2"], "word=? AND word1=?", Variant(word), Variant(word1));
+		} else {
+			result = this.db["words_after"].select(["word1"], "word=?", Variant(word));
 		}
 
-		if (!candidates.length && depth > 2) {
-			string candidate = complete_after(sentence, depth - 1);
-			if (candidate) {
-				candidates[candidate] = 1;
+		foreach (Row row; result) {
+			int candidate = row[0]().get!int;
+			if (candidate !in candidates) {
+				candidates[candidate] = 0;
 			}
+			candidates[candidate]++;
+		}
+
+		return candidates;
+	}
+
+	int complete_before(int[] sentence) {
+		size_t[int] candidates;
+
+		switch (sentence.length) {
+			case 0:
+				return 0;
+			case 1:
+				candidates = this.candidates_before(sentence[0]);
+				break;
+			case 2:
+			default:
+				candidates = this.candidates_before(sentence[0], sentence[1]);
+				break;
+		}
+
+		debug(deeborg) stderr.writeln("Backward candidates for ", sentence, ": ", candidates);
+
+		if (candidates.length) {
+			auto index = dice(candidates.values);
+			return candidates.keys[index];
+		}
+		
+		return 0;
+	}
+
+	int complete_after(int[] sentence) {
+		size_t[int] candidates;
+
+		switch (sentence.length) {
+			case 0:
+				return 0;
+			case 1:
+				candidates = this.candidates_after(sentence[$-1]);
+				break;
+			case 2:
+			default:
+				candidates = this.candidates_after(sentence[$-1], sentence[$-2]);
+				break;
 		}
 
 		if (candidates.length) {
@@ -475,33 +466,57 @@ class Bot {
 			return candidates.keys[index];
 		}
 		
-		return null;
+		return 0;
+	}
+
+	string sentence(int[] words) {
+		string[] sentence;
+
+		foreach (int word_id; words) {
+			sentence ~= this.word(word_id);
+		}
+
+		return sentence.join(" ");
 	}
 
 	string answer(string sentence) {
-		string seed = this.rarest_word(sentence);
+		int seed = this.rarest_word(sentence);
 
-		if (seed is null) {
+		debug(deeborg) stderr.writeln("Rarest word is ", seed);
+
+		if (!seed) {
 			// Seems like there is no answer to give.
 			return "";
 		}
 
-		string[] answer = this.get_initial_sentence(seed, LOOKAHEAD_DEPTH);
+		int[] answer = this.get_initial_sentence(seed, LOOKAHEAD_DEPTH);
+
+		debug(deeborg) stderr.writeln("Initial sentence is ", this.sentence(answer));
 		
 		if (!answer.length) {
 			return "";
 		}
 
-		string s;
-		while ((s = this.complete_before(answer, LOOKAHEAD_DEPTH)) !is null) {
+		auto init_length = answer.length;
+
+		int s;
+		while ((s = this.complete_before(answer)) > 0) {
 			answer = [s] ~ answer;
 		}
 
-		while ((s = this.complete_after(answer, LOOKAHEAD_DEPTH)) !is null) {
+		debug(deeborg) stderr.writeln("Backward-completed sentence is ", this.sentence(answer));
+
+		while ((s = this.complete_after(answer)) > 0) {
 			answer ~= s;
 		}
 
-		return this.sanitize_answer(answer.join(" "));
+		debug(deeborg) stderr.writeln("Forward-completed sentence is ", this.sentence(answer));
+
+		if (answer.length > init_length) {
+			return this.sanitize_answer(this.sentence(answer));
+		} else {
+			return "";
+		}
 	}
 }
 
