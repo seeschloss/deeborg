@@ -5,7 +5,7 @@ Deeborg is a simple Markov chains bot, based on the old PyBorg (http://sebastien
 
 ```
   Usage: deeborg [--file=<word database>] [--learn=false] [--answer=false]
-  
+
 	--file=<word database>      read <word database> to create answers and update
 	                            it with new sentences
 	                            ("deeborg.state" in current directory by default)
@@ -16,16 +16,7 @@ Deeborg is a simple Markov chains bot, based on the old PyBorg (http://sebastien
 	--answer=<true|false>       do not answer fed sentences
 	                            (true by default, ie answer each sentence fed)
 
-	--depth=<lookahead depth>   depth to which to look for matches for words in
-	                            answer (3 means every three-word subsentence must
-	                            already exist in known sentences)
-	                            (2 by default)
-	
-	--handle=<author handle>    if learning is enabled, handle of the person talking
-	                            the bot will not use sentences said by this person
-	                            for its answers
 
-  
   Unless learning or answering are disabled, each line fed on stdin
   will be read and answered to use Markov chains and the existing
   word database. Each line will then be parsed into sentences
