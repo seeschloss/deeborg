@@ -27,6 +27,14 @@ void help() {
 	--answer=<true|false>       do not answer fed sentences
 	                            (true by default, ie answer each sentence fed)
 
+	--depth=<lookahead depth>   depth to which to look for matches for words in
+	                            answer (3 means every three-word subsentence must
+	                            already exist in known sentences)
+	                            (2 by default)
+	                            lookahead depth cannot be changed for a given
+                                database, the parameter only affects new databases
+
+
 	--help                      this help message
 
 
@@ -52,6 +60,7 @@ int main(string[] args) {
 			args,
 			"learn", &learn,
 			"answer", &answer,
+			"depth", &depth,
 			"file", &statefile
 		);
 	} catch (Exception e) {
@@ -64,6 +73,8 @@ int main(string[] args) {
 	Bot bot = new Bot();
 	
 	if (exists(statefile)) {
+		int old_depth = depth;
+
 		auto time = Clock.currTime();
 		debug(running) {stderr.writeln("Reading statefile ", statefile, "...");}
 		string state = cast(string)read(statefile);
@@ -72,6 +83,10 @@ int main(string[] args) {
 		time = Clock.currTime();
 		bot.load(state);
 		debug(running) {stderr.writeln("State loaded (", Clock.currTime() - time, ").");}
+
+		if (LOOKAHEAD_DEPTH != old_depth) {
+			stderr.writeln("Lookahead depth has been set to ", old_depth, " but database has a depth of ", LOOKAHEAD_DEPTH, " (using ", LOOKAHEAD_DEPTH, ")");
+		}
 	}
 
 	string text;
@@ -109,7 +124,6 @@ int main(string[] args) {
 
 class Bot {
 	private Sentence[] sentences;
-	private int length = 2;
 
 	private Candidate[string][string] candidates_after;
 	private Candidate[string][string] candidates_before;
@@ -145,11 +159,11 @@ class Bot {
 		GC.disable();
 
 		foreach (Sentence sentence; this.sentences) {
-			if (sentence.length > this.length) {
+			if (sentence.length > LOOKAHEAD_DEPTH) {
 				debug(learning) {stderr.writeln("Organizing sentence ", sentence);}
-				for (int i = 0; i <= sentence.length - this.length; i++) {
-					string index = sentence[i..i+2].join(" ");
-					string word = i+2 < sentence.length ? sentence[i+2] : "<end>";
+				for (int i = 0; i <= sentence.length - LOOKAHEAD_DEPTH; i++) {
+					string index = sentence[i..i+LOOKAHEAD_DEPTH].join(" ");
+					string word = i+LOOKAHEAD_DEPTH < sentence.length ? sentence[i+LOOKAHEAD_DEPTH] : "<end>";
 
 					if (index !in this.frequencies) {
 						this.frequencies[index] = 1;
@@ -166,8 +180,8 @@ class Bot {
 					}
 				}
 
-				for (int i = 0; i <= sentence.length - this.length; i++) {
-					string index = sentence[i..i+2].join(" ");
+				for (int i = 0; i <= sentence.length - LOOKAHEAD_DEPTH; i++) {
+					string index = sentence[i..i+LOOKAHEAD_DEPTH].join(" ");
 					string word = i > 0 ? sentence[i-1] : "<start>";
 
 					if (index !in this.candidates_before || word !in this.candidates_before[index]) {
@@ -195,8 +209,8 @@ class Bot {
 		int popularity = int.max;
 		string seed = "";
 
-		for (int i = 0; i < sentence.length - this.length; i++) {
-			string index = sentence[i..i+2].join(" ");
+		for (int i = 0; i < sentence.length - LOOKAHEAD_DEPTH; i++) {
+			string index = sentence[i..i+LOOKAHEAD_DEPTH].join(" ");
 
 			int frequency = index in this.frequencies ? this.frequencies[index] : 0;
 			debug(answering) {stderr.writeln("Frequency of ", index, " is ", frequency);}
@@ -221,7 +235,7 @@ class Bot {
 			answer ~= " " ~ next_word;
 
 			string[] parts = split(answer, " ");
-			next_word = this.next_word(parts[$-2 .. $].join(" "));
+			next_word = this.next_word(parts[$-LOOKAHEAD_DEPTH .. $].join(" "));
 		}
 		if (next_word == "<end>") {
 			if (answer[$-1] != '!' && answer[$-1] != '?') {
@@ -235,7 +249,7 @@ class Bot {
 			answer = previous_word ~ " " ~ answer;
 
 			string[] parts = split(answer, " ");
-			previous_word = this.previous_word(parts[0 .. 2].join(" "));
+			previous_word = this.previous_word(parts[0 .. LOOKAHEAD_DEPTH].join(" "));
 		}
 		if (previous_word == "<start>") {
 			answer = answer.capitalize();
@@ -287,6 +301,9 @@ class Bot {
 				case "f":
 					this.frequencies[parts[1]] = to!int(parts[2]);
 					break;
+				case "d":
+					LOOKAHEAD_DEPTH = to!int(parts[1]);
+					break;
 				default:
 					break;
 			}
@@ -297,6 +314,8 @@ class Bot {
 
 	string save() {
 		string data = "";
+
+		data ~= std.string.format("d\t%s\n", LOOKAHEAD_DEPTH);
 
 		foreach (string index, Candidate[string] candidates; this.candidates_after) {
 			foreach (Candidate candidate; candidates) {
@@ -367,7 +386,7 @@ class Sentence {
 	}
 
 	bool meaningful() {
-		return this.words.length > 2;
+		return this.words.length > LOOKAHEAD_DEPTH;
 	}
 
 	string opIndex(size_t i) {
