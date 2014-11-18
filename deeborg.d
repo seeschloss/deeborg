@@ -123,8 +123,8 @@ class Bot {
 
 		text = std.array.replace(text, "?", "?. ");
 		text = std.array.replace(text, "!", "!. ");
-		text = std.array.replace(text, " (", ". ");
-		text = std.array.replace(text, ") ", ". ");
+		text = std.array.replace(text, "(", ". ");
+		text = std.array.replace(text, ")", ". ");
 
 		string[] lines = text.split(". ");
 
@@ -238,6 +238,9 @@ class Bot {
 		if (previous_word == "<start>") {
 			answer = answer.capitalize();
 		}
+
+		answer = std.array.replace(answer, "?", " ?");
+		answer = std.array.replace(answer, "!", " !");
 
 		return answer;
 	}
