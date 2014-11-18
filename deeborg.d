@@ -1,19 +1,15 @@
 import std.stdio;
 import std.string;
 import std.random;
-import std.digest.crc;
 import std.conv;
 import std.file;
 import std.regex;
 import std.getopt;
-import std.zlib;
 import std.algorithm;
 import std.math;
 import std.datetime;
 
 import core.memory;
-
-enum Direction {forward, backward};
 
 immutable WORD_POPULARITY_THRESHOLD = 1;
 int LOOKAHEAD_DEPTH = 3;
@@ -31,15 +27,6 @@ void help() {
 	--answer=<true|false>       do not answer fed sentences
 	                            (true by default, ie answer each sentence fed)
 
-	--depth=<lookahead depth>   depth to which to look for matches for words in
-	                            answer (3 means every three-word subsentence must
-	                            already exist in known sentences)
-	                            (2 by default)
-	
-	--handle=<author handle>    if learning is enabled, handle of the person talking
-	                            the bot will not use sentences said by this person
-	                            for its answers
-	
 	--help                      this help message
 
 
