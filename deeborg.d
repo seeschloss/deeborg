@@ -11,8 +11,8 @@ import std.datetime;
 
 import core.memory;
 
-immutable WORD_POPULARITY_THRESHOLD = 1;
-int LOOKAHEAD_DEPTH = 3;
+immutable WORD_POPULARITY_THRESHOLD = 2;
+int LOOKAHEAD_DEPTH = 2;
 
 void help() {
 	stdout.writeln(q"#Usage: deeborg  [options ...]
@@ -148,7 +148,7 @@ class Bot {
 			if (sentence.length > this.length) {
 				debug(learning) {stderr.writeln("Organizing sentence ", sentence);}
 				for (int i = 0; i <= sentence.length - this.length; i++) {
-					string index = sentence[i] ~ " " ~ sentence[i+1];
+					string index = sentence[i..i+2].join(" ");
 					string word = i+2 < sentence.length ? sentence[i+2] : "<end>";
 
 					if (index !in this.frequencies) {
@@ -167,7 +167,7 @@ class Bot {
 				}
 
 				for (int i = 0; i <= sentence.length - this.length; i++) {
-					string index = sentence[i] ~ " " ~ sentence[i+1];
+					string index = sentence[i..i+2].join(" ");
 					string word = i > 0 ? sentence[i-1] : "<start>";
 
 					if (index !in this.candidates_before || word !in this.candidates_before[index]) {
@@ -196,12 +196,12 @@ class Bot {
 		string seed = "";
 
 		for (int i = 0; i < sentence.length - this.length; i++) {
-			string index = sentence[i] ~ " " ~ sentence[i+1];
+			string index = sentence[i..i+2].join(" ");
 
 			int frequency = index in this.frequencies ? this.frequencies[index] : 0;
 			debug(answering) {stderr.writeln("Frequency of ", index, " is ", frequency);}
 
-			if (frequency > 3 && frequency < popularity) {
+			if (frequency > WORD_POPULARITY_THRESHOLD && frequency < popularity) {
 				popularity = frequency;
 				seed = index;
 			}
@@ -221,10 +221,12 @@ class Bot {
 			answer ~= " " ~ next_word;
 
 			string[] parts = split(answer, " ");
-			next_word = this.next_word(parts[$-2] ~ " " ~ parts[$-1]);
+			next_word = this.next_word(parts[$-2 .. $].join(" "));
 		}
 		if (next_word == "<end>") {
-			answer ~= ".";
+			if (answer[$-1] != '!' && answer[$-1] != '?') {
+				answer ~= ".";
+			}
 		}
 
 		string previous_word = this.previous_word(seed);
@@ -233,7 +235,7 @@ class Bot {
 			answer = previous_word ~ " " ~ answer;
 
 			string[] parts = split(answer, " ");
-			previous_word = this.previous_word(parts[0] ~ " " ~ parts[1]);
+			previous_word = this.previous_word(parts[0 .. 2].join(" "));
 		}
 		if (previous_word == "<start>") {
 			answer = answer.capitalize();
