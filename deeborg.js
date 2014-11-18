@@ -11,18 +11,18 @@ var Bot = function() {
 Bot.prototype.learn = function(text) {
 	var self = this;
 
-	text = text.replace(/ \?/, "?");
-	text = text.replace(/ !/, "!");
-	text = text.replace(/\?/, "?. ");
-	text = text.replace(/!/, "!. ");
-	text = text.replace(/\(/, ". ");
-	text = text.replace(/\)/, ". ");
-	text = text.replace(/ : /, ". ");
+	text = text.replace(/ \?/g, "?");
+	text = text.replace(/ !/g, "!");
+	text = text.replace(/\?/g, "?. ");
+	text = text.replace(/!/g, "!. ");
+	text = text.replace(/\(/g, ". ");
+	text = text.replace(/\)/g, ". ");
+	text = text.replace(/ : /g, ". ");
 
 	var lines = text.split(/\. /);
 
 	lines.forEach(function(line) {
-		var sentence = new Sentence(line);
+					var sentence = new Sentence(line);
 		if (sentence.meaningful()) {
 			self.sentences.push(sentence);
 		}
@@ -36,7 +36,7 @@ Bot.prototype.organize = function() {
 		if (sentence.words.length > LOOKAHEAD_DEPTH) {
 			for (var i = 0; i <= sentence.words.length - LOOKAHEAD_DEPTH; i++) {
 				var index = sentence.words.slice(i, i+LOOKAHEAD_DEPTH).join(' ');
-				var word = i+LOOKAHEAD_DEPTH < sentence.words.length ? sentence.words[i+LOOKAHEAD_DEPTH] : '<end>';
+				var word = i+LOOKAHEAD_DEPTH < sentence.words.length ? sentence.words[i+LOOKAHEAD_DEPTH] : new Word('<end>');
 
 				if (!(index in self.frequencies)) {
 					self.frequencies[index] = 1;
@@ -49,7 +49,7 @@ Bot.prototype.organize = function() {
 				}
 
 				if (!(word in self.candidates_after[index])) {
-					self.candidates_after[index][word] = new Candidate(word);
+					self.candidates_after[index][word] = new Candidate(word.text);
 				} else {
 					self.candidates_after[index][word].weight++;
 				}
@@ -57,14 +57,14 @@ Bot.prototype.organize = function() {
 
 			for (var i = 0; i <= sentence.words.length - LOOKAHEAD_DEPTH; i++) {
 				var index = sentence.words.slice(i, i+LOOKAHEAD_DEPTH).join(' ');
-				var word = i > 0 ? sentence.words[i-1] : '<start>';
+				var word = i > 0 ? sentence.words[i-1] : new Word('<start>');
 
 				if (!(index in self.candidates_before)) {
 					self.candidates_before[index] = {};
 				}
 
 				if (!(word in self.candidates_before[index])) {
-					self.candidates_before[index][word] = new Candidate(word);
+					self.candidates_before[index][word] = new Candidate(word.text);
 				} else {
 					self.candidates_before[index][word].weight++;
 				}
@@ -124,15 +124,15 @@ Bot.prototype.answer = function(text) {
 		answer = answer.charAt(0).toUpperCase() + answer.slice(1);
 	}
 
-	answer = answer.replace(/\?/, " ?");
-	answer = answer.replace(/!/, " !");
+	answer = answer.replace(/\?/g, " ?");
+	answer = answer.replace(/!/g, " !");
 
 	return answer;
 };
 
 Bot.prototype.next_word = function(seed) {
 	if (seed in this.candidates_after) {
-		return this.choose(this.candidates_after[seed]).toString();
+		return this.choose(this.candidates_after[seed]).text;
 	}
 
 	return null;
@@ -140,7 +140,7 @@ Bot.prototype.next_word = function(seed) {
 
 Bot.prototype.previous_word = function(seed) {
 	if (seed in this.candidates_before) {
-		return this.choose(this.candidates_before[seed]).toString();
+		return this.choose(this.candidates_before[seed]).text;
 	}
 
 	return null;
@@ -149,34 +149,30 @@ Bot.prototype.previous_word = function(seed) {
 Bot.prototype.load = function(data) {
 	var self = this;
 
-	var lines = data.split("\n");
-
-	lines.forEach(function(line) {
-		if (line.length >= 3) {
-			var parts = line.split("\t");
-			
-			switch (parts[0]) {
-				case "a":
-					if (!(parts[1] in self.candidates_after)) {
-						self.candidates_after[parts[1]] = {};
-					}
-					self.candidates_after[parts[1]][parts[2]] = new Candidate(parts[2], +parts[3]);
-					break;
-				case "b":
-					if (!(parts[1] in self.candidates_before)) {
-						self.candidates_after[parts[1]] = {};
-					}
-					self.candidates_before[parts[1]][parts[2]] = new Candidate(parts[2], +parts[3]);
-					break;
-				case "f":
-					self.frequencies[parts[1]] = +parts[2];
-					break;
-				case "d":
-					LOOKAHEAD_DEPTH = +parts[1];
-					break;
-				default:
-					break;
-			}
+	data.split(/\n/).forEach(function(line) {
+		var parts = line.split(/\t/);
+		
+		switch (parts[0]) {
+			case "a":
+				if (!(parts[1] in self.candidates_after)) {
+					self.candidates_after[parts[1]] = {};
+				}
+				self.candidates_after[parts[1]][parts[2]] = new Candidate(parts[2], +parts[3]);
+				break;
+			case "b":
+				if (!(parts[1] in self.candidates_before)) {
+					self.candidates_before[parts[1]] = {};
+				}
+				self.candidates_before[parts[1]][parts[2]] = new Candidate(parts[2], +parts[3]);
+				break;
+			case "f":
+				self.frequencies[parts[1]] = +parts[2];
+				break;
+			case "d":
+				LOOKAHEAD_DEPTH = +parts[1];
+				break;
+			default:
+				break;
 		}
 	});
 };
@@ -266,6 +262,7 @@ var Sentence = function(text) {
 };
 
 Sentence.prototype.clean = function() {
+	this.text = this.text.replace(/^\s+|\s+$/g, '');
 	this.text = this.text.replace(/"/, '');
 };
 
@@ -306,7 +303,7 @@ Word.prototype.toString = function() {
 	return this.text;
 };
 
-if (exports) {
+if (typeof exports != 'undefined') {
 	exports.Bot = Bot;
 }
 
