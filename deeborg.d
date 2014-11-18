@@ -385,7 +385,7 @@ class Sentence {
 			Word word = new Word(part);
 
 			if (word.meaningful) {
-				this.words ~= new Word(part);
+				this.words ~= word;
 			}
 		}
 	}
