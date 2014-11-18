@@ -30,7 +30,7 @@ void help() {
 	--depth=<lookahead depth>   depth to which to look for matches for words in
 	                            answer (3 means every three-word subsentence must
 	                            already exist in known sentences)
-	                            (2 by default)
+	                            (2 by default, has to be greater than 0)
 	                            lookahead depth cannot be changed for a given
                                 database, the parameter only affects new databases
 
@@ -66,6 +66,11 @@ int main(string[] args) {
 	} catch (Exception e) {
 		help();
 		return 1;
+	}
+
+	if (depth < 1) {
+		help();
+		return 2;
 	}
 
 	LOOKAHEAD_DEPTH = depth;
