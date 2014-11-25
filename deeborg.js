@@ -82,6 +82,8 @@ Bot.prototype.answer = function(text) {
 
 	var popularity = undefined;
 	var seed = "";
+	var after = "";
+	var before = ""
 
 	for (var i = 0; i < sentence.words.length - LOOKAHEAD_DEPTH; i++) {
 		var index = sentence.words.slice(i, i+LOOKAHEAD_DEPTH).join(' ');
@@ -91,6 +93,9 @@ Bot.prototype.answer = function(text) {
 		if (frequency > WORD_POPULARITY_THRESHOLD && (popularity == undefined || frequency < popularity)) {
 			popularity = frequency;
 			seed = index;
+
+			after = i+LOOKAHEAD_DEPTH < sentence.words.length ? sentence.words[i+LOOKAHEAD_DEPTH] : new Word('<end>');
+			before = i > 0 ? sentence.words[i-1] : new Word('<start>');
 		}
 	}
 
@@ -98,11 +103,14 @@ Bot.prototype.answer = function(text) {
 		return "";
 	}
 
+	var words = LOOKAHEAD_DEPTH;
+
 	var answer = seed;
-	var next_word = this.next_word(seed);
+	var next_word = this.next_word(seed, after);
 
 	while (next_word && next_word != "<end>") {
 		answer += " " + next_word;
+		words++;
 
 		var parts = answer.split(/ /);
 		next_word = this.next_word(parts.slice(parts.length-LOOKAHEAD_DEPTH, parts.length).join(' '));
@@ -113,9 +121,10 @@ Bot.prototype.answer = function(text) {
 		}
 	}
 
-	var previous_word = this.previous_word(seed);
+	var previous_word = this.previous_word(seed, before);
 	while (previous_word && previous_word != "<start>") {
 		answer = previous_word + " " + answer;
+		words++;
 
 		var parts = answer.split(/ /);
 		previous_word = this.previous_word(parts.slice(0, LOOKAHEAD_DEPTH).join(' '));
@@ -124,23 +133,30 @@ Bot.prototype.answer = function(text) {
 		answer = answer.charAt(0).toUpperCase() + answer.slice(1);
 	}
 
+	if (words == LOOKAHEAD_DEPTH) {
+		// No new word was found to complete the sentence.
+		return "";
+	}
+
 	answer = answer.replace(/\?/g, " ?");
 	answer = answer.replace(/!/g, " !");
 
 	return answer;
 };
 
-Bot.prototype.next_word = function(seed) {
+Bot.prototype.next_word = function(seed, exclude) {
 	if (seed in this.candidates_after) {
-		return this.choose(this.candidates_after[seed]).text;
+		var choice = this.choose(this.candidates_after[seed], exclude);
+		return choice ? choice.text : "";
 	}
 
 	return null;
 };
 
-Bot.prototype.previous_word = function(seed) {
+Bot.prototype.previous_word = function(seed, exclude) {
 	if (seed in this.candidates_before) {
-		return this.choose(this.candidates_before[seed]).text;
+		var choice = this.choose(this.candidates_before[seed], exclude);
+		return choice ? choice.text : "";
 	}
 
 	return null;
@@ -208,7 +224,7 @@ Bot.prototype.save = function() {
 	return data;
 };
 
-Bot.prototype.choose = function(candidates) {
+Bot.prototype.choose = function(candidates, exclude) {
 	var total = 0;
 
 	for (var index in candidates) {
@@ -222,12 +238,18 @@ Bot.prototype.choose = function(candidates) {
 	for (var index in candidates) {
 		var candidate = candidates[index];
 
-		weights.push({
-			candidate: candidate,
-			threshold: candidate.weight/total + offset
-		});
+		if (candidate.weight > 0 && (!exclude || exclude.length <= 3 || candidate.text != exclude)) {
+			weights.push({
+				candidate: candidate,
+				threshold: candidate.weight/total + offset
+			});
 
-		offset += candidate.weight/total;
+			offset += candidate.weight/total;
+		}
+	}
+
+	if (weights.length == 0) {
+		return "";
 	}
 
 	weights.sort(function(a, b) {return a.threshold < b.threshold ? -1 : 1;});

@@ -213,6 +213,8 @@ class Bot {
 
 		int popularity = int.max;
 		string seed = "";
+		string after = "";
+		string before = "";
 
 		for (int i = 0; i < sentence.length - LOOKAHEAD_DEPTH; i++) {
 			string index = sentence[i..i+LOOKAHEAD_DEPTH].join(" ");
@@ -223,6 +225,9 @@ class Bot {
 			if (frequency > WORD_POPULARITY_THRESHOLD && frequency < popularity) {
 				popularity = frequency;
 				seed = index;
+
+				after = i+LOOKAHEAD_DEPTH < sentence.length ? sentence[i+LOOKAHEAD_DEPTH] : "<end>";
+				before = i > 0 ? sentence[i-1] : "<start>";
 			}
 		}
 
@@ -232,12 +237,15 @@ class Bot {
 			return "";
 		}
 
+		int words = LOOKAHEAD_DEPTH;
+
 		string answer = seed;
-		string next_word = this.next_word(seed);
+		string next_word = this.next_word(seed, after);
 
 		while (next_word && next_word != "<end>") {
 			debug(answering) {stderr.writeln("Answer is ", answer, "... ", next_word);}
 			answer ~= " " ~ next_word;
+			words++;
 
 			string[] parts = split(answer, " ");
 			next_word = this.next_word(parts[$-LOOKAHEAD_DEPTH .. $].join(" "));
@@ -248,10 +256,11 @@ class Bot {
 			}
 		}
 
-		string previous_word = this.previous_word(seed);
+		string previous_word = this.previous_word(seed, before);
 		while (previous_word && previous_word != "<start>") {
 			debug(answering) {stderr.writeln("Answer is ", previous_word, "... ", answer);}
 			answer = previous_word ~ " " ~ answer;
+			words++;
 
 			string[] parts = split(answer, " ");
 			previous_word = this.previous_word(parts[0 .. LOOKAHEAD_DEPTH].join(" "));
@@ -260,25 +269,32 @@ class Bot {
 			answer = answer.capitalize();
 		}
 
+		if (words == LOOKAHEAD_DEPTH) {
+			// No new word was found to complete the sentence.
+			return "";
+		}
+
 		answer = std.array.replace(answer, "?", " ?");
 		answer = std.array.replace(answer, "!", " !");
 
 		return answer;
 	}
 
-	string next_word(string seed) {
+	string next_word(string seed, string exclude = null) {
 		if (seed in this.candidates_after) {
 			debug(answering) {stderr.writeln(this.candidates_after[seed].length, " candidates after ", seed, "...");}
-			return this.choose(this.candidates_after[seed]).toString();
+			Candidate choice = this.choose(this.candidates_after[seed], exclude);
+			return choice ? choice.toString() : null;
 		}
 
 		return null;
 	}
 
-	string previous_word(string seed) {
+	string previous_word(string seed, string exclude = null) {
 		if (seed in this.candidates_before) {
 			debug(answering) {stderr.writeln(this.candidates_before[seed].length, " candidates before ", seed, "...");}
-			return this.choose(this.candidates_before[seed]).toString();
+			Candidate choice = this.choose(this.candidates_before[seed], exclude);
+			return choice ? choice.toString() : null;
 		}
 
 		return null;
@@ -341,14 +357,20 @@ class Bot {
 		return data;
 	}
 
-	Candidate choose(Candidate[string] candidates) {
+	Candidate choose(Candidate[string] candidates, string exclude = null) {
 		int[Candidate] weights;
-		foreach (Candidate candidate; candidates) {
-			weights[candidate] = candidate.weight;
-		}
-		size_t index = dice(weights.values);
 
-		return weights.keys[index];
+		foreach (Candidate candidate; candidates) {
+			if (candidate.weight > 0 && (exclude.length <= 3 || candidate.toString() != exclude)) {
+				weights[candidate] = candidate.weight * candidate.weight;
+			}
+		}
+		if (weights.length > 0) {
+			size_t index = dice(weights.values);
+			return weights.keys[index];
+		} else {
+			return null;
+		}
 	}
 }
 
