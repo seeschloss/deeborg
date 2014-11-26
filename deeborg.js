@@ -318,7 +318,7 @@ var Word = function(text) {
 }
 
 Word.prototype.meaningful = function() {
-	return this.text.match(/^[a-zA-Z:;\[]/) && !this.text.match(/^href=/);
+	return this.text.match(/^[a-zA-Z:;\[#]/) && !this.text.match(/^href=/);
 };
 
 Word.prototype.toString = function() {
