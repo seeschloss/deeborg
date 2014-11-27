@@ -461,7 +461,7 @@ class Word {
 	}
 
 	bool meaningful() {
-		return !matchFirst(this.text, `^[\p{L}:;\[#]`).empty() && (this.text.length < 5 || this.text[0..5] != "href=");
+		return !matchFirst(this.text, `^[\p{L}:;\[#@]`).empty() && (this.text.length < 5 || this.text[0..5] != "href=");
 	}
 
 	override string toString() {
