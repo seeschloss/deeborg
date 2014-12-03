@@ -1,0 +1,13 @@
+[Unit]
+Description=Deeborg HTTP service
+
+[Service]
+ExecStart=/usr/bin/node /usr/local/src/deeborg/deeborg-http.js
+WorkingDirectory=/usr/local/src/deeborg
+Environment="PORT=3000" "BIND=127.0.0.1" "DATABASE=/var/db/deeborg.db"
+Restart=always
+User=nobody
+Group=nobody
+
+[Install]
+WantedBy=multi-user.target
