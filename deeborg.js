@@ -22,7 +22,7 @@ Bot.prototype.learn = function(text) {
 	var lines = text.split(/\. /);
 
 	lines.forEach(function(line) {
-					var sentence = new Sentence(line);
+		var sentence = new Sentence(line);
 		if (sentence.meaningful()) {
 			self.sentences.push(sentence);
 		}
