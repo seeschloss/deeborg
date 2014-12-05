@@ -198,6 +198,7 @@ class Bot {
 				}
 			}
 		}
+		this.sentences.length = 0;
 		GC.enable();
 
 		debug(learning) {stderr.writeln("Found ", this.candidates_after.length, " chains");}

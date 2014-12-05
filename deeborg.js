@@ -71,6 +71,8 @@ Bot.prototype.organize = function() {
 			}
 		}
 	});
+
+	this.sentences = [];
 };
 
 Bot.prototype.answer = function(text) {
@@ -318,7 +320,7 @@ var Word = function(text) {
 }
 
 Word.prototype.meaningful = function() {
-	return this.text.match(/^[a-zA-Z:;\[#@]/) && !this.text.match(/^href=/);
+	return !this.text.match(/^[0-9<>]/) && !this.text.match(/^href=/);
 };
 
 Word.prototype.toString = function() {
