@@ -23,7 +23,7 @@ Bot.prototype.learn = function(text) {
 
 	lines.forEach(function(line) {
 		var sentence = new Sentence(line);
-		if (sentence.meaningful()) {
+		if (sentence.meaningful() && self.sentences.indexOf(sentence) < 0) {
 			self.sentences.push(sentence);
 		}
 	});
