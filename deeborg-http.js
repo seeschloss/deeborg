@@ -71,6 +71,10 @@ function respondTo(question, request, response) {
 	console.log("Answered '" + answer + "' to '" + question + "'");
 
 	deeborg.learn(question);
-	deeborg.organize();
+
+	if (deeborg.sentences.length > 20) {
+	  console.log("Organizing " + deeborg.sentences.length + " learnt sentences");
+	  deeborg.organize();
+	}
 }
 
