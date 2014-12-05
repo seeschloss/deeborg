@@ -45,7 +45,7 @@ http.createServer(function(request, response) {
 			});
 			break;
 		case "GET":
-			var question = unescape(request.url.substr(2));
+			var question = decodeURI(request.url.substr(2));
 			respondTo(question, request, response);
 			break;
 	}
