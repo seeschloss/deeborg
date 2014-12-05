@@ -61,7 +61,7 @@ function respondTo(question, request, response) {
 
     if (answer.length > 0) {
       response.writeHead(200, {"Content-Type": "text/plain; charset=utf8"});
-      response.write(answer + "\n");
+      response.write(answer.replace(/&lt;/g, '<').replace(/&gt;/g, '>') + "\n");
     } else {
       response.writeHead(418, {"Content-Type": "text/plain; charset=utf8"});
       response.write("<empty>\n");
