@@ -52,9 +52,15 @@ http.createServer(function(request, response) {
 }).listen(port, bind);
 
 function respondTo(question, request, response) {
-	response.writeHead(200, {"Content-Type": "text/plain; charset=utf8"});
 	var answer = deeborg.answer(question);
-	response.write(answer + "\n");
+
+    if (answer.length > 0) {
+      response.writeHead(200, {"Content-Type": "text/plain; charset=utf8"});
+      response.write(answer + "\n");
+    } else {
+      response.writeHead(418, {"Content-Type": "text/plain; charset=utf8"});
+      response.write("<empty>\n");
+    }
 	response.end();
 
 	console.log("Answered '" + answer + "' to '" + question + "'");
