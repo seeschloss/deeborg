@@ -45,8 +45,13 @@ http.createServer(function(request, response) {
 			});
 			break;
 		case "GET":
-			var question = decodeURI(request.url.substr(2));
-			respondTo(question, request, response);
+			if (request.url == '/favicon.ico' || request.url == '/robots.txt') {
+				response.writeHead(404);
+				response.end();
+			} else {
+				var question = decodeURI(request.url.substr(2));
+				respondTo(question, request, response);
+			}
 			break;
 	}
 }).listen(port, bind);
