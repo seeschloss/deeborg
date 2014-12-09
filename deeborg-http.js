@@ -1,4 +1,3 @@
-// vim:et:sw=2
 /**
  * Module dependencies.
  */
@@ -59,13 +58,13 @@ http.createServer(function(request, response) {
 function respondTo(question, request, response) {
 	var answer = deeborg.answer(question);
 
-    if (answer.length > 0) {
-      response.writeHead(200, {"Content-Type": "text/plain; charset=utf8"});
-      response.write(answer.replace(/&lt;/g, '<').replace(/&gt;/g, '>') + "\n");
-    } else {
-      response.writeHead(418, {"Content-Type": "text/plain; charset=utf8"});
-      response.write("<empty>\n");
-    }
+	if (answer.length > 0) {
+		response.writeHead(200, {"Content-Type": "text/plain; charset=utf8"});
+		response.write(answer.replace(/&lt;/g, '<').replace(/&gt;/g, '>') + "\n");
+	} else {
+		response.writeHead(418, {"Content-Type": "text/plain; charset=utf8"});
+		response.write("<empty>\n");
+	}
 	response.end();
 
 	console.log("Answered '" + answer + "' to '" + question + "'");
