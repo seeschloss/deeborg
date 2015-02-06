@@ -103,6 +103,12 @@ int main(string[] args) {
 
 			if (answer) {
 				string answer_text = bot.answer(text);
+				int ttl = 4;
+				while (answer_text.length == 0 && ttl > 0) {
+					answer_text = bot.answer(text);
+					ttl--;
+				}
+
 				if (answer_text.length > 0) {
 					stdout.writeln(answer_text);
 				}
