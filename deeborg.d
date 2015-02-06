@@ -284,6 +284,10 @@ class Bot {
 		answer = std.array.replace(answer, "?", " ?");
 		answer = std.array.replace(answer, "!", " !");
 
+		if (sentence.matches_substring(answer)) {
+			return "";
+		}
+
 		return answer;
 	}
 
@@ -457,6 +461,13 @@ class Sentence {
 			text ~= word.toString() ~ " ";
 		}
 		return text;
+	}
+
+	bool matches_substring(string substring) {
+		string lowerThis = this.toString.toLower;
+		string lowerThat = substring.toLower;
+
+		return lowerThis.find(lowerThat) || lowerThat.find(lowerThis);
 	}
 }
 
