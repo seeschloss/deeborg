@@ -467,7 +467,13 @@ class Sentence {
 		string lowerThis = this.toString.toLower;
 		string lowerThat = substring.toLower;
 
-		return lowerThis.find(lowerThat) || lowerThat.find(lowerThis);
+		debug(answering) stderr.writeln("Looking for ", lowerThat, " in ", lowerThis);
+
+		bool result = lowerThis.find(lowerThat).length > 0 || lowerThat.find(lowerThis).length > 0;
+
+		debug(answering) stderr.writeln("... ", result);
+
+		return result;
 	}
 }
 
