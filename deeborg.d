@@ -33,9 +33,8 @@ void help() {
 	                            already exist in known sentences)
 	                            (2 by default)
 	
-	--handle=<author handle>    if learning is enabled, handle of the person talking
-	                            the bot will not use sentences said by this person
-	                            for its answers
+	--handle=<author handle>    this will be used for answering posts, where a name
+	                            is needed
 	
 	--help                      this help message
 
@@ -88,19 +87,20 @@ int main(string[] args) {
 		if (answer) {
 			string answer_sentence = bot.answer(sentence);
 
-			/+
 			// This is a crude way to ensure that sentences end mostly correctly.
 			int tries = 0;
-			while (answer_sentence.length > 1 && answer_sentence[$-1] != '.' && tries < 20) {
+			while (answer_sentence.length > 1 && answer_sentence[$-1] != '.' && answer_sentence[$-1] != '!' && answer_sentence[$-1] != '?' && tries < 20) {
 				tries++;
+				debug(tries) stderr.writeln("Another try because sentence is not good: ", answer_sentence);
 				answer_sentence = bot.answer(sentence);
 			}
 
+			/*
 			if (answer_sentence.length > 1 && answer_sentence[$-1] == '.') {
 				// Remove extra period.
 				answer_sentence = answer_sentence[0 .. $-1];
 			}
-			+/
+			*/
 
 			stdout.writeln(answer_sentence);
 		}
@@ -117,7 +117,7 @@ int main(string[] args) {
 
 class Bot {
 	Database db;
-	string user = "#";
+	string user = "";
 
 	this(string dbfile) {
 		if (!exists(dbfile)) {
@@ -186,7 +186,9 @@ class Bot {
 
 		int frequency = 0;
 		if (!result.peek!int) {
+		+/
 			db["words_before"].insert([Variant(word2b), Variant(word1b), Variant(word), Variant(1)], ["word2", "word1", "word", "frequency"]);
+		/+
 		} else {
 			frequency = result.get!int + 1;
 			db["words_before"].update("frequency=?", "word=? AND word1=? AND word2=?", [Variant(frequency), Variant(word), Variant(word1b), Variant(word2b)]);
@@ -205,13 +207,14 @@ class Bot {
 	}
 
 	void learn(string human_sentence) {
-		human_sentence = std.array.replace(human_sentence, "?", " ?. ");
-		human_sentence = std.array.replace(human_sentence, "!", " !. ");
-		human_sentence = std.array.replace(human_sentence, " (", " . ");
-		human_sentence = std.array.replace(human_sentence, ") ", " . ");
+		human_sentence = std.array.replace(human_sentence, " (", ". ");
+		human_sentence = std.array.replace(human_sentence, ") ", ". ");
+
+		if (human_sentence.length > 1 && human_sentence[$-1] != '.' && human_sentence[$-1] != '!' && human_sentence[$-1] != '?') {
+			human_sentence ~= ".";
+		}
 
 		foreach (string sub_sentence; human_sentence.split(". ")) {
-			string author = this.user ? this.user : "#";
 			string[] words = this.parse_sentence(sub_sentence);
 
 			if (words.length < 3) {
@@ -229,20 +232,17 @@ class Bot {
 				this.learn_chain(this.word_id(word2_b), this.word_id(word1_b), this.word_id(sentence_word), this.word_id(word1_a), this.word_id(word2_a));
 			}
 		}
-
-		int forgotten = 0;
-		int min_popularity = 0;
 	}
 
 	string[] parse_sentence(string sentence) {
 		string[] words;
 
-		sentence = std.array.replace(sentence, "?", " ?");
-		sentence = std.array.replace(sentence, "!", " !");
+		// We don't want <a href="http://plop">[url]</a> to be split up
+		sentence = std.array.replace(sentence, "<a href", "<a_href");
 
-		enum is_word = ctRegex!(`[\pL.?!]`);
+		enum is_clock = ctRegex!(`..:..:..`);
 		enum is_junk = ctRegex!(`[=+(){}/|\\*@~^<>&;]`);
-		enum is_url = ctRegex!(`^href=`);
+		enum is_url = ctRegex!(`href=`);
 
 		sentence = sentence.removechars("\"");
 		
@@ -253,22 +253,20 @@ class Bot {
 
 			if (word.length > 1 && word[$-1] == '<') {
 				// This is a tribune nickname.
-				words ~= "#";
+				words ~= "<nickname>";
 				continue;
 			}
 
-			if (!match(word, is_word)) {
-				words ~= "#";
+			if (match(word, is_clock)) {
 				continue;
 			}
 
 			if (match(word, is_junk)) {
-				words ~= "#";
 				continue;
 			}
 
 			if (match(word, is_url)) {
-				words ~= "#";
+				words ~= "<url>";
 				continue;
 			}
 
@@ -283,13 +281,10 @@ class Bot {
 	}
 
 	int word_rarity(int word_id) {
-		Variant result = this.db["words_after"].value(["SUM(frequency)"], "word=? GROUP BY word", Variant(word_id));
+		Variant resulta = this.db["words_after"].value(["SUM(frequency)"], "word=? GROUP BY word", Variant(word_id));
+		Variant resultb = this.db["words_before"].value(["SUM(frequency)"], "word=? GROUP BY word", Variant(word_id));
 
-		if (result.peek!int) {
-			return result.get!int;
-		} else {
-			return 0;
-		}
+		return resulta.get!int + resultb.get!int;
 	}
 
 	int rarest_word(string sentence) {
@@ -326,6 +321,12 @@ class Bot {
 		sentence = std.array.replace(sentence, "?", " ?");
 		sentence = std.array.replace(sentence, "!", " !");
 		sentence = std.array.replace(sentence, "  ", " ");
+
+		if (this.user) {
+			sentence = std.array.replace(sentence, "<nickname>", this.user ~ "<");
+		}
+
+		sentence = std.array.replace(sentence, "<url>", "<b><u>[url]</u></b>");
 
 		return sentence;
 	}
@@ -405,7 +406,7 @@ class Bot {
 		Row[] result;
 
 		if (word1) {
-			result = this.db["words_after"].select(["word2"], "word=? AND word1=?", Variant(word), Variant(word1));
+			result = this.db["words_after"].select(["word2"], "word1=? AND word=?", Variant(word), Variant(word1));
 		} else {
 			result = this.db["words_after"].select(["word1"], "word=?", Variant(word));
 		}
