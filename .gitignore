@@ -1,4 +1,6 @@
 *.o
 *.swp
 *.db
-deeborg
+bin/
+.dub/
+dub.selections.json

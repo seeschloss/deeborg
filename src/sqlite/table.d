@@ -35,7 +35,7 @@ final class Table{
         }
 
     public:
-        this( ref Database database, string name ){
+        this( Database database, string name ){
             _database   = database;
             _name       = name.idup;
         }

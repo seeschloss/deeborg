@@ -135,7 +135,7 @@ class Database{
                     query ~= ", ";
             }
             command( query );
-            _tables[tableName] = new Table( this, tableName);
+            this._tables[tableName] = new Table( this, tableName);
         }
 
         /**
