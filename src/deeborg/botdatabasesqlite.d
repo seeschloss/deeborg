@@ -43,6 +43,8 @@ class BotDatabaseSqlite : BotDatabase {
 	}
 
 	void learn_sentence(string[] words) {
+		debug(deeborg) stderr.writeln("Learning sentence: ", words);
+
 		foreach (int position, string sentence_word ; words) {
 			string word1_b = position > 0 ? words[position-1] : "";
 			string word2_b = position > 1 ? words[position-2] : "";
@@ -60,6 +62,9 @@ class BotDatabaseSqlite : BotDatabase {
 			auto rarity = this.word_rarity(this.word_id(word));
 
 			if (rarity < 2) {
+				if (rarity == 0) {
+					debug(deeborg) stderr.writeln("Word with no frequency was ", word);
+				}
 				// An unknown word is not "rare", it is unknown.
 				// And a word only seen once is still too rare to use.
 				continue;
@@ -109,6 +114,12 @@ class BotDatabaseSqlite : BotDatabase {
 		// to get rid of one of them later.
 		foreach (Row row; this.db["words_after"].select(["word", "frequency"], conditions.join(" AND "), values)) {
 			string candidate = this.word_string(row["word"]().get!int);
+
+			// Ignore words repeated three times.
+			if (words.length > 1 && candidate == words[0] && candidate == words[1]) {
+				continue;
+			}
+
 			if (candidate !in candidates) {
 				candidates[candidate] = 0;
 			}
@@ -148,6 +159,12 @@ class BotDatabaseSqlite : BotDatabase {
 
 		foreach (Row row; this.db["words_after"].select([select, "frequency"], conditions.join(" AND "), values)) {
 			string candidate = this.word_string(row[0]().get!int);
+
+			// Ignore words repeated three times.
+			if (words.length > 1 && candidate == words[$-2] && candidate == words[$-1]) {
+				continue;
+			}
+
 			if (candidate !in candidates) {
 				candidates[candidate] = 0;
 			}
@@ -161,6 +178,12 @@ class BotDatabaseSqlite : BotDatabase {
 	private int word_rarity(int word_id) {
 		Variant resulta = this.db["words_after"].value(["SUM(frequency)"], "word=? GROUP BY word", Variant(word_id));
 		Variant resultb = this.db["words_before"].value(["SUM(frequency)"], "word=? GROUP BY word", Variant(word_id));
+
+		if (!resulta.peek!int || !resultb.peek!int) {
+			// Well, this shouldn't happen.
+			debug(deeborg) stderr.writeln("For some reason, word #", word_id, " has no frequency? ", resulta, "/", resultb);
+			return 0;
+		}
 
 		return resulta.get!int + resultb.get!int;
 	}

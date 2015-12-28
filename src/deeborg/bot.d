@@ -62,7 +62,7 @@ class Bot {
 				continue;
 			}
 
-			if (word.length > 1 && word[$-1] == '<') {
+			if (word.length > 1 && word[$-1] == '<' && word != "moules<") {
 				// This is a tribune nickname.
 				words ~= "<nickname>";
 				continue;
@@ -101,8 +101,10 @@ class Bot {
 		sentence = std.array.replace(sentence, "!", " !");
 		sentence = std.array.replace(sentence, "  ", " ");
 
-		if (this.user) {
+		if (this.user && dice(75, 25)) {
 			sentence = std.array.replace(sentence, "<nickname>", this.user ~ "<");
+		} else {
+			sentence = std.array.replace(sentence, "<nickname>", "toi");
 		}
 
 		sentence = std.array.replace(sentence, "<url>", "<b><u>[url]</u></b>");
