@@ -152,8 +152,14 @@ class Bot {
 		+/
 	}
 
-	string complete_before(string[] sentence) {
+	string complete_before(string[] sentence, string[] excluded) {
 		size_t[string] candidates = this.db.candidates_before(sentence);
+
+		foreach (string candidate, size_t weight; candidates) {
+			if (excluded.canFind(candidate)) {
+				candidates.remove(candidate);
+			}
+		}
 
 		debug(deeborg) stderr.writeln("Backward candidates for ", sentence, ": ", candidates);
 
@@ -165,8 +171,14 @@ class Bot {
 		return "";
 	}
 
-	string complete_after(string[] sentence) {
+	string complete_after(string[] sentence, string[] excluded) {
 		size_t[string] candidates = this.db.candidates_after(sentence);
+
+		foreach (string candidate, size_t weight; candidates) {
+			if (excluded.canFind(candidate)) {
+				candidates.remove(candidate);
+			}
+		}
 
 		debug(deeborg) stderr.writeln("Forward candidates for ", sentence, ": ", candidates);
 
@@ -179,7 +191,8 @@ class Bot {
 	}
 
 	string answer(string sentence) {
-		string seed = this.db.rarest_word(this.parse_sentence(sentence));
+		auto reference = this.parse_sentence(sentence);
+		string seed = this.db.rarest_word(reference);
 
 		debug(deeborg) stderr.writeln("Rarest word is ", seed);
 
@@ -197,12 +210,28 @@ class Bot {
 		auto init_length = answer.length;
 
 		string s;
-		while ((s = this.complete_before(answer)) != "") {
-			answer = [s] ~ answer;
+		string[] excluded;
+		while ((s = this.complete_before(answer, excluded)) != "") {
+			auto possible_answer = [s] ~ answer;
+
+			if (reference.find(possible_answer).length == 0) {
+				answer = possible_answer;
+			} else {
+				debug(deeborg) stderr.writeln("Answer '", possible_answer, "' isn't acceptable because it is a substring of '", reference, "'");
+				excluded ~= s;
+			}
 		}
 
-		while ((s = this.complete_after(answer)) != "") {
-			answer ~= s;
+		excluded.length = 0;
+		while ((s = this.complete_after(answer, excluded)) != "") {
+			auto possible_answer = answer ~ [s];
+
+			if (reference.find(possible_answer).length == 0) {
+				answer = possible_answer;
+			} else {
+				debug(deeborg) stderr.writeln("Answer '", possible_answer, "' isn't acceptable because it is a substring of '", reference, "'");
+				excluded ~= s;
+			}
 		}
 
 		if (answer.length > init_length) {
