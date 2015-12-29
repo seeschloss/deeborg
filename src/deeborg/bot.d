@@ -49,9 +49,12 @@ class Bot {
 		string[] words;
 
 		// We don't want <a href="http://plop">[url]</a> to be split up
+		// Yes this is but a dirty hack, however it works fine and doesn't
+		// require a complete overhaul when there's just a single token
+		// that needs such special-casing. So here we go.
 		sentence = std.array.replace(sentence, "<a href", "<a_href");
 
-		enum is_clock = ctRegex!(`..:..:..`);
+		enum is_clock = ctRegex!(`[0-1][0-9]:[0-5][0-9]:[0-5][0-9]`);
 		enum is_junk = ctRegex!(`[=+(){}/|\\*@~^<>&;]`);
 		enum is_url = ctRegex!(`href=`);
 
@@ -112,44 +115,10 @@ class Bot {
 		return sentence;
 	}
 
+	// I just feel like this part could be so much more elaborate and give rise
+	// to better answers.
 	string[] get_initial_sentence(string seed, int length) {
 		return [seed];
-
-		/+
-
-		int[][] sentences;
-
-		/*
-		if (seed in this.words && this.words[seed].length) {
-			foreach (Word occurence; this.words[seed]) {
-				if (occurence.sentence.author != this.user && occurence.sentence.words.length >= length) {
-					if (occurence.position <= length) {
-						// seed is within the length first words
-						sentences ~= occurence.sentence.words[0 .. length];
-					} else if (occurence.sentence.words.length - occurence.position < length) {
-						// seed is within the length last words
-						sentences ~= occurence.sentence.words[$-length .. $];
-					} else {
-						// then seed will have at least length words before it and length words after it
-						int offset = length/2 + 1;
-						sentences ~= occurence.sentence.words[occurence.position-length+offset .. occurence.position+offset];
-					}
-				}
-			}
-		}
-		*/
-
-		foreach (Row row; this.db["words_before"].select(["word", "word1", "word2"], "word=?", Variant(seed))) {
-		}
-
-		if (sentences.length == 1) {
-			return sentences[0];
-		} else if (sentences.length > 1) {
-			return sentences[uniform(0, sentences.length - 1)];
-		} else {
-			return [];
-		}
-		+/
 	}
 
 	string complete_before(string[] sentence, string[] excluded) {
@@ -214,7 +183,7 @@ class Bot {
 		while ((s = this.complete_before(answer, excluded)) != "") {
 			auto possible_answer = [s] ~ answer;
 
-			if (reference.find(possible_answer).length == 0) {
+			if (!reference.canFind(possible_answer)) {
 				answer = possible_answer;
 			} else {
 				debug(deeborg) stderr.writeln("Answer '", possible_answer, "' isn't acceptable because it is a substring of '", reference, "'");
@@ -226,7 +195,7 @@ class Bot {
 		while ((s = this.complete_after(answer, excluded)) != "") {
 			auto possible_answer = answer ~ [s];
 
-			if (reference.find(possible_answer).length == 0) {
+			if (!reference.canFind(possible_answer)) {
 				answer = possible_answer;
 			} else {
 				debug(deeborg) stderr.writeln("Answer '", possible_answer, "' isn't acceptable because it is a substring of '", reference, "'");
